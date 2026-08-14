@@ -20,10 +20,13 @@ describe('plan 模式：计划完成检测（阶段 2）', () => {
     expect(detectPlanCompletion(t)).toBe(false)
   })
 
-  it('标记在 Reasoning 里也能检测（思考折叠时输出标记）', () => {
+  it('G5 回归：标记只在 Reasoning（思考讨论标记字符串）→ 不检测（假阳性）', () => {
     const t = newTaskState('p3')
-    t.activities = [{ Reasoning: { text: `计划完毕标记 ${PLAN_DONE_MARKER}`, at: 1, turn: 1 } }]
-    expect(detectPlanCompletion(t)).toBe(true)
+    t.activities = [
+      { Reasoning: { text: `the instruction says end with ${PLAN_DONE_MARKER} but I have no proposal yet`, at: 1, turn: 1 } },
+      { Text: { text: '探索完成，发现需求不明确，需要澄清……', at: 2, turn: 1 } },
+    ]
+    expect(detectPlanCompletion(t)).toBe(false)
   })
 
   it('空活动 → 未完成', () => {

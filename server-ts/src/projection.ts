@@ -399,15 +399,26 @@ export const PLAN_DONE_MARKER = '【计划完毕】'
 /** 需求校准的完成标记（D1.7：agent 产出验收标准提案）。 */
 export const CALIBRATE_DONE_MARKER = '【验收标准完毕】'
 
+/** 最后一段连续 Text 产出（探索/工具调用等非 Text 活动中断；标记检测与提取共用的文本源） */
+function lastTextSegment(t: TaskState): string {
+  const texts: string[] = []
+  for (let i = t.activities.length - 1; i >= 0; i--) {
+    const a = t.activities[i]
+    if (!('Text' in a)) break
+    const txt = a.Text?.text ?? ''
+    if (!txt) break
+    texts.unshift(txt)
+  }
+  return texts.join('\n')
+}
+
 /**
- * 检测 agent 是否已产出标记内容（活动流文本含 marker）。
- * 纯函数：从 activities 提取文本（Text + Reasoning 都计入检测，提取只取 Text）。
+ * 检测 agent 是否已在产出段输出标记（最后连续 Text 活动含 marker）。
+ * G5 修复：只认 Text 输出，不计 Reasoning——agent 思考中讨论标记字符串是常见行为，
+ * 计入会导致"没产出却挂 Waiting"的假阳性（校准/计划批复拿到无意义内容）。
  */
 export function detectMarker(t: TaskState, marker: string): boolean {
-  const allText = t.activities
-    .map((a) => ('Text' in a ? a.Text?.text : 'Reasoning' in a ? a.Reasoning?.text : ''))
-    .join('')
-  return allText.includes(marker)
+  return lastTextSegment(t).includes(marker)
 }
 
 /**
@@ -424,16 +435,7 @@ export function detectPlanCompletion(t: TaskState): boolean {
  * 纯函数：供 plan 模式挂 Waiting{plan}、校准挂 Waiting{calibrate} 时把产物放进批复。
  */
 export function extractMarkerText(t: TaskState, marker: string): string {
-  // 从最后向前收集连续 Text 活动，遇非 Text 活动（Reasoning/Tool/…）即中断产出段
-  const texts: string[] = []
-  for (let i = t.activities.length - 1; i >= 0; i--) {
-    const a = t.activities[i]
-    if (!('Text' in a)) break
-    const txt = a.Text?.text ?? ''
-    if (!txt) break
-    texts.unshift(txt)
-  }
-  const joined = texts.join('\n')
+  const joined = lastTextSegment(t)
   const idx = joined.indexOf(marker)
   if (idx >= 0) return joined.slice(0, idx).trim()
   return joined.slice(-800)
