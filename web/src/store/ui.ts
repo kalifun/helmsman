@@ -15,6 +15,8 @@ interface UiState {
   view: ViewId;
   openId: string | null;
   tab: DrawerTab;
+  /** 会话钻入全屏页：session id（hash `t=` 参数；非空 = 渲染 SessionDetailView） */
+  sessionId: string | null;
   sideOpen: boolean;
   sideQ: string;
   settingsOpen: boolean;
@@ -23,7 +25,7 @@ interface UiState {
   /** 本地待注册项目（离线兜底；刷新持久化。服务端显式注册后移除） */
   pendingProjects: Record<string, { id: string; name: string; path: string }>;
   toasts: ToastItem[];
-  setRoute: (p: Partial<Pick<UiState, 'pid' | 'view' | 'openId' | 'tab'>>) => void;
+  setRoute: (p: Partial<Pick<UiState, 'pid' | 'view' | 'openId' | 'tab' | 'sessionId'>>) => void;
   toggleSide: () => void;
   setSideQ: (q: string) => void;
   setSettingsOpen: (v: boolean) => void;
@@ -44,6 +46,7 @@ export const useUi = create<UiState>((set, get) => ({
   view: 'home',
   openId: null,
   tab: 'comments',
+  sessionId: null,
   sideOpen: (() => { try { return localStorage.getItem('helmsman-side') !== '0'; } catch { return true; } })(),
   sideQ: '',
   settingsOpen: false,
@@ -85,13 +88,20 @@ export const useUi = create<UiState>((set, get) => ({
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
 
-/** 把当前路由写入 hash（契约：#pid=&view=&open=&tab=） */
-export function writeHash(pid: string | null, view: ViewId, openId: string | null, tab: DrawerTab) {
+/** 把当前路由写入 hash（契约：#pid=&view=&open=&tab=&t=） */
+export function writeHash(pid: string | null, view: ViewId, openId: string | null, tab: DrawerTab, sessionId?: string | null) {
   const params: string[] = [];
   if (pid) params.push('pid=' + encodeURIComponent(pid));
   if (view && view !== 'home') params.push('view=' + view);
   if (openId) params.push('open=' + encodeURIComponent(openId));
   if (tab && tab !== 'comments') params.push('tab=' + tab);
+  if (sessionId) params.push('t=' + encodeURIComponent(sessionId));
   const h = params.length ? '#' + params.join('&') : '#';
   if (location.hash !== h) history.replaceState(null, '', h);
+}
+
+/** 跳会话钻入全屏页：#pid=&t=<sid>（保留 view 以便返回） */
+export function openSession(pid: string, sid: string, view: ViewId, cardId: string | null) {
+  useUi.getState().setRoute({ sessionId: sid, openId: cardId, pid });
+  writeHash(pid, view, cardId, 'comments', sid);
 }

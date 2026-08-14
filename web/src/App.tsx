@@ -26,6 +26,7 @@ import type { IconName } from './components/icons';
 import { Button } from './components/Button';
 import { ExperimentView } from './views/ExperimentView';
 import { ApprovalsView } from './views/ApprovalsView';
+import { SessionDetailView } from './views/SessionDetailView';
 
 const VIEW_ITEMS: { id: ViewId; label: string; icon: IconName }[] = [
   { id: 'projhome', label: '首页', icon: 'home' },
@@ -54,18 +55,18 @@ function parseHash() {
     const view = params.view && VIEW_ITEMS.some((v) => v.id === params.view) ? (params.view as ViewId) : 'projhome';
     const tab = (['comments', 'brief', 'artifact', 'session', 'trajectory'].includes(params.tab || '')
       ? (params.tab === 'session' ? 'trajectory' : params.tab) : 'comments') as DrawerTab;
-    useUi.getState().setRoute({ pid: hashPid, view, openId: params.open || null, tab });
+    useUi.getState().setRoute({ pid: hashPid, view, openId: params.open || null, tab, sessionId: params.t || null });
     const { pendingProjects } = useUi.getState();
     if (!pendingProjects[hashPid]) useProjection.getState().loadProject(hashPid);
   } else {
-    useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments' });
+    useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments', sessionId: null });
   }
 }
 
 function Toolbar({ pid }: { pid: string }) {
   const view = useUi((s) => s.view);
   const setView = (v: ViewId) => {
-    useUi.getState().setRoute({ view: v, openId: null, tab: 'comments' });
+    useUi.getState().setRoute({ view: v, openId: null, tab: 'comments', sessionId: null });
     writeHash(pid, v, null, 'comments');
   };
   return (
@@ -87,6 +88,7 @@ export default function App() {
   const pid = useUi((s) => s.pid);
   const view = useUi((s) => s.view);
   const openId = useUi((s) => s.openId);
+  const sessionId = useUi((s) => s.sessionId);
 
   // 进入项目 → 主动拉取任务详情（列表/详情分离：列表轻量，激活项目才加载任务）
   useEffect(() => {
@@ -158,13 +160,14 @@ export default function App() {
               </div>
             ) : null}
             <main className="stage-main">
-              {home ? <HomeView /> : null}
-              {pid && view === 'projhome' ? <ProjectHomeView pid={pid} /> : null}
-              {pid && view === 'kanban' ? <KanbanView pid={pid} /> : null}
-              {pid && view === 'chat' ? <SessionView pid={pid} /> : null}
-              {pid && view === 'sessions' ? <SessionsView pid={pid} /> : null}
-              {pid && view === 'graph' ? <GraphView pid={pid} /> : null}
-              {pid && view === 'kb' ? <KnowledgeBaseView pid={pid} /> : null}
+              {pid && sessionId ? <SessionDetailView pid={pid} sid={sessionId} /> : null}
+              {!sessionId && home ? <HomeView /> : null}
+              {!sessionId && pid && view === 'projhome' ? <ProjectHomeView pid={pid} /> : null}
+              {!sessionId && pid && view === 'kanban' ? <KanbanView pid={pid} /> : null}
+              {!sessionId && pid && view === 'chat' ? <SessionView pid={pid} /> : null}
+              {!sessionId && pid && view === 'sessions' ? <SessionsView pid={pid} /> : null}
+              {!sessionId && pid && view === 'graph' ? <GraphView pid={pid} /> : null}
+              {!sessionId && pid && view === 'kb' ? <KnowledgeBaseView pid={pid} /> : null}
               {pid && view === 'files' ? <FilesView pid={pid} /> : null}
               {pid && view === 'experiment' ? <ExperimentView pid={pid} /> : null}
               {pid && view === 'approvals' ? <ApprovalsView pid={pid} /> : null}
