@@ -63,7 +63,7 @@ export interface TaskState {
   last_seq: number;           // 已折叠到的日志 seq（增量同步水位）
   recovered: boolean;         // 服务重启后从会话日志重放标记
   /** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复 */
-  waiting?: { kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate'; reason: string; payload: Record<string, unknown> } | null;
+  waiting?: { kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate' | 'checkpoint'; reason: string; payload: Record<string, unknown> } | null;
   /** 执行启动时的预设快照（§2.6：执行契约，随任务生命周期延续） */
   preset?: { id: string; name: string; mode: string; setting: string; approval: string; sandbox: string } | null;
   /** 依赖契约快照（继承自卡的 deps；图 DAG 边 = 最新执行此字段） */
@@ -72,7 +72,7 @@ export interface TaskState {
 
 /** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复 */
 export interface Waiting {
-  kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate';
+  kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate' | 'checkpoint';
   reason: string;
   payload: Record<string, unknown>;
 }
@@ -81,6 +81,7 @@ export interface Waiting {
 export const WAITING_LABEL: Record<Waiting['kind'], string> = {
   plan: '计划确认',
   calibrate: '验收标准确认',
+  checkpoint: '阶段确认',
   permission: '权限请求',
   acceptance: '交付验收',
   cost: '成本确认',

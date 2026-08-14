@@ -290,7 +290,7 @@ export async function setDefaultProfile(pid: string, id: string): Promise<boolea
 /** 三轴 → 中文标签（建卡下拉/预设管理展示） */
 export const MODE_LABEL: Record<Profile['mode'], string> = { normal: '常规', plan: '计划', goal: '目标' };
 export const SETTING_LABEL: Record<Profile['setting'], string> = { light: '轻量', balanced: '均衡', delivery: '交付' };
-export const APPROVAL_LABEL: Record<Profile['approval'], string> = { ask: '询问', auto: '自动', yolo: 'Yolo' };
+export const APPROVAL_LABEL: Record<Profile['approval'], string> = { ask: '询问', auto: '自动', yolo: 'Yolo（全放手）' };
 export const SANDBOX_LABEL: Record<Profile['sandbox'], string> = { 'read-only': '只读', 'workspace-write': '写项目', 'danger-full-access': '全放开' };
 
 export function profileSummary(p: Profile): string {
