@@ -538,7 +538,10 @@ async function main(): Promise<void> {
       finished_at: null,
       created_at: created,
     })
-    const prompt = `【需求校准】请先探索需求（读代码/文档，必要时提问澄清），然后产出验收标准提案：
+    const prompt = `【需求校准】目标卡：「${c.title}」
+需求描述：${c.description || '（未填写）'}
+
+请围绕上述需求探索（读代码/文档，必要时提问澄清），然后产出验收标准提案：
 1. 验收标准必须是**可判定断言**（命令式验证如 node -e 断言，或精确可检查的描述），不是空话；
 2. 覆盖关键行为、边界、交付物；
 3. 最后用一行 "${CALIBRATE_DONE_MARKER}" 结尾，之后停下等待确认，不要开始执行。`
