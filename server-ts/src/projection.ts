@@ -194,9 +194,8 @@ export function foldTask(t: TaskState, ev: Record<string, unknown>): void {
     }
     case 'assistant/chunk': {
       const chunk = data?.chunk as Record<string, unknown> | undefined
-      if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') {
-        pushActivity(t, { Text: { text: chunk.text, at: time, turn: t.current_turn } })
-      }
+      // text-delta 是流式增量碎片，与 text-chunks（打包增量）是同一文本的重复传输。
+      // 存活动只取 text-chunks（追加合并）；chunk 仅作前端流式信号（streams[sid]），不进投影。
       break
     }
     case 'text-chunks':
@@ -205,10 +204,17 @@ export function foldTask(t: TaskState, ev: Record<string, unknown>): void {
         ? (data.texts as unknown[]).filter((x): x is string => typeof x === 'string').join('')
         : ''
       if (texts.length > 0) {
-        const act: Activity = ty === 'text-chunks'
-          ? { Text: { text: texts, at: time, turn: t.current_turn } }
-          : { Reasoning: { text: texts, at: time, turn: t.current_turn } }
-        pushActivity(t, act)
+        if (ty === 'text-chunks') {
+          // text-chunks 是增量打包块：同 turn 追加到上一条 Text（dsh 式完整消息，不逐块存）
+          const last = t.activities[t.activities.length - 1]
+          if (last && 'Text' in last && last.Text.turn === t.current_turn) {
+            last.Text.text += texts
+          } else {
+            pushActivity(t, { Text: { text: texts, at: time, turn: t.current_turn } })
+          }
+        } else {
+          pushActivity(t, { Reasoning: { text: texts, at: time, turn: t.current_turn } })
+        }
       }
       break
     }
@@ -326,4 +332,18 @@ export function detectPlanCompletion(t: TaskState): boolean {
     .map((a) => ('Text' in a ? a.Text?.text : 'Reasoning' in a ? a.Reasoning?.text : ''))
     .join('')
   return allText.includes(PLAN_DONE_MARKER)
+}
+
+/**
+ * 提取 agent 产出的计划文本（【计划完毕】标记之前的 Text 活动内容）。
+ * 纯函数：供 plan 模式挂 Waiting{plan} 时把计划本体放进批复。
+ */
+export function extractPlanText(t: TaskState): string {
+  // 只取 Text 活动（Reasoning 是思考不是计划输出）；取【计划完毕】之前的全部计划文本
+  const texts = t.activities
+    .map((a) => ('Text' in a ? a.Text?.text : ''))
+    .join('')
+  const idx = texts.indexOf(PLAN_DONE_MARKER)
+  if (idx < 0) return texts.slice(-800)
+  return texts.slice(0, idx).trim()
 }

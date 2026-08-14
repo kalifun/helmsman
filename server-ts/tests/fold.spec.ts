@@ -133,3 +133,41 @@ describe('fold: waiting 保护（阶段 2 · plan/acceptance）', () => {
     expect(s.status).toBe('Done')
   })
 })
+
+describe('fold: 流式分片合并（dsh 式完整消息）', () => {
+  it('同 turn 的 text-chunks 增量合并成一条完整 Text', () => {
+    const s = newTaskState('m1')
+    foldTask(s, { type: 'turn/start', seq: 1, time: 1, data: { turn: 1 } })
+    // 三个 text-chunks 增量块（dsh 打包增量，非重复全文）
+    foldTask(s, { type: 'text-chunks', seq: 2, time: 2, data: { texts: ['## 计划'] } })
+    foldTask(s, { type: 'text-chunks', seq: 3, time: 3, data: { texts: ['：步骤1'] } })
+    foldTask(s, { type: 'text-chunks', seq: 4, time: 4, data: { texts: [' 步骤2'] } })
+    expect(s.activities.length).toBe(1)
+    expect('Text' in s.activities[0] ? s.activities[0].Text.text : '').toBe('## 计划：步骤1 步骤2')
+  })
+
+  it('assistant/chunk text-delta 不进投影（text-chunks 是权威源）', () => {
+    const s = newTaskState('m1b')
+    foldTask(s, { type: 'turn/start', seq: 1, time: 1, data: { turn: 1 } })
+    foldTask(s, { type: 'assistant/chunk', seq: 2, time: 2, data: { chunk: { type: 'text-delta', text: '流式碎片' } } })
+    expect(s.activities.length).toBe(0)
+  })
+
+  it('text-chunks 增量追加（不覆盖，不重复）', () => {
+    const s = newTaskState('m2')
+    foldTask(s, { type: 'turn/start', seq: 1, time: 1, data: { turn: 1 } })
+    foldTask(s, { type: 'text-chunks', seq: 2, time: 2, data: { texts: ['前段'] } })
+    foldTask(s, { type: 'text-chunks', seq: 3, time: 3, data: { texts: ['后段'] } })
+    expect(s.activities.length).toBe(1)
+    expect('Text' in s.activities[0] ? s.activities[0].Text.text : '').toBe('前段后段')
+  })
+
+  it('不同 turn 的 Text 不合并', () => {
+    const s = newTaskState('m3')
+    foldTask(s, { type: 'turn/start', seq: 1, time: 1, data: { turn: 1 } })
+    foldTask(s, { type: 'text-chunks', seq: 2, time: 2, data: { texts: ['第一轮'] } })
+    foldTask(s, { type: 'turn/start', seq: 3, time: 3, data: { turn: 2 } })
+    foldTask(s, { type: 'text-chunks', seq: 4, time: 4, data: { texts: ['第二轮'] } })
+    expect(s.activities.length).toBe(2)
+  })
+})

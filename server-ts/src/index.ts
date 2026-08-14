@@ -22,6 +22,7 @@ import {
   removeProject,
   foldTask,
   detectPlanCompletion,
+  extractPlanText,
   type CardMeta,
   type CardState,
   type Project,
@@ -346,7 +347,12 @@ async function main(): Promise<void> {
           })
           // 阶段 2 · plan 模式：检测 agent 是否产出计划（【计划完毕】标记）→ 挂 Waiting{plan} 等批复
           if (presetMode === 'plan' && t.status === 'Done' && t.waiting === null && detectPlanCompletion(t)) {
-              t.waiting = { kind: 'plan', reason: '计划模式：agent 已产出计划，请审阅后批准执行或要求修改', payload: {} }
+              const planText = extractPlanText(t)
+              t.waiting = {
+                kind: 'plan',
+                reason: `计划模式：agent 已产出计划（见计划内容），请审阅后批准执行或要求修改`,
+                payload: { mode: 'plan', plan: planText },
+              }
               // 计划等待不是终态——重置为 Running（等待批复中），批准后继续执行
               t.status = 'Running'
               storage.upsertExecution({
@@ -365,7 +371,7 @@ async function main(): Promise<void> {
                 project_id: projectId,
                 execution_id: sid,
                 kind: 'plan',
-                payload: { mode: 'plan' },
+                payload: { mode: 'plan', plan: planText },
                 reason: '计划模式：agent 已产出计划，请审阅',
                 outcome: null,
                 comment: null,
