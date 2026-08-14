@@ -1,0 +1,12 @@
+# [helmsman] 精简编码预设：最小工具集 + 简洁人设 —— 演示每任务按 preset 组装会话。
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: |-
+      You are a concise coding assistant. Answer briefly, write minimal correct code, verify by running it when possible. Working directory: {{cwd}}.
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'

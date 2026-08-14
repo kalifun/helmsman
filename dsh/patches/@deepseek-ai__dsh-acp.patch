@@ -1,0 +1,39 @@
+diff --git a/lib/index.js b/lib/index.js
+index 26cf4df03a7dd7f7933a151cd22c6b4082ecd912..045580421d4359375ea4aa2fa028e697d7616571 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -406,10 +406,32 @@ function apply(ctx, config) {
+ 				assertOpen();
+ 				validateSessionParams(params);
+ 				const sessionId = SessionId(randomUUID());
++				// [helmsman-patch] 透传 _meta.agentPreset：让调用方按 preset 组装会话（每任务工具/人格）。
++				// _meta 是 ACP 协议开放扩展缝（validateSessionParams 不拒它）；agentPreset 由 agents.create
++				// 的 meta 支持（dsh-agent CreateAgentOptions.meta.agentPreset）。
++				const agentPreset = params._meta?.agentPreset;
++				const meta = agentPreset !== void 0 && agentPreset !== null
++					? { cwd: params.cwd, agentPreset }
++					: { cwd: params.cwd };
++				// [helmsman-patch] setup hook：会话指名 preset 时按预设组装（agent factory setup 是
++				// agent-presets README 明示的唯一受支持接点；agentCtx 此时 unpublished 且已 scope）。
++				const setup = agentPreset !== void 0 && agentPreset !== null
++					? async (agentCtx, commit) => {
++						try {
++							const presets = ctx.get("agentPresets");
++							if (presets) await presets.mount(agentCtx, agentPreset);
++							commit?.();
++						} catch (err) {
++							console.error(`[preset-join] mount "${agentPreset}" failed:`, err?.message ?? err);
++							commit?.();
++						}
++					}
++					: void 0;
+ 				const handle = await agents.create({
+ 					sessionId,
+-					meta: { cwd: params.cwd },
+-					agentOptions: agentOptions(config)
++					meta,
++					agentOptions: agentOptions(config),
++					...(setup ? { setup } : {})
+ 				});
+ 				/* v8 ignore next 4 -- a real stdio close can race an in-flight create. */
+ 				if (closed) {

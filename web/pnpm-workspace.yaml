@@ -1,0 +1,6 @@
+# 职责：pnpm 设置 —— 允许 esbuild 运行安装脚本（vite 依赖其原生二进制）。
+# pnpm ≥11 的 approve-builds 机制：allowBuilds 显式批准；onlyBuiltDependencies 兼容旧写法。
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

@@ -1,0 +1,32 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+.pnpm-store/
+
+# dsh 运行时
+dsh/.sessions/
+dsh/.sessions-archive/
+dsh/.sessions*/
+
+# 产品数据
+helmsman.db
+helmsman.db-shm
+helmsman.db-wal
+server-ts/helmsman-ts.db*
+server-ts/.npm-cache/
+
+# 工具
+.direnv/
+
+# 本机环境（dsh 工具安装的 skills / direnv）
+.agents/
+.envrc
+skills-lock.json
+
+# 研究/设计过程产物（本地保留，不上传）
+research/
+research-ide-agents.md
+design-mockups/
+docs-archive/
+server-ts/.sessions/
