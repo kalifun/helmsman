@@ -2,7 +2,7 @@
  * 阶段 2 测试：plan 检测 + 预设快照 + delivery 验收门。
  */
 import { describe, expect, it } from 'vitest'
-import { newTaskState, detectPlanCompletion, extractPlanText, detectMarker, extractMarkerText, PLAN_DONE_MARKER, CALIBRATE_DONE_MARKER } from '../src/projection.ts'
+import { newTaskState, detectPlanCompletion, extractPlanText, detectMarker, extractMarkerText, PLAN_DONE_MARKER, CALIBRATE_DONE_MARKER, CHECKPOINT_DONE_MARKER } from '../src/projection.ts'
 
 describe('plan 模式：计划完成检测（阶段 2）', () => {
   it('活动含【计划完毕】标记 → 检测为计划完成', () => {
@@ -113,5 +113,43 @@ describe('D1.7 需求校准：验收标准提案检测与提取', () => {
     expect(prop).toContain('npm test')
     expect(prop).not.toContain('探索中')
     expect(prop).not.toContain(CALIBRATE_DONE_MARKER)
+  })
+})
+
+describe('D1.8 目标模式：阶段检查点检测', () => {
+  it('阶段小结含【阶段完毕】→ 检测到检查点', () => {
+    const t = newTaskState('g1')
+    t.activities = [
+      { ToolStart: { name: 'bash', at: 1, turn: 1 } },
+      { Text: { text: '阶段 1：搭好脚手架，CLI 能跑通 add 子命令', at: 2, turn: 2 } },
+      { Text: { text: `${CHECKPOINT_DONE_MARKER}`, at: 3, turn: 2 } },
+    ]
+    expect(detectMarker(t, CHECKPOINT_DONE_MARKER)).toBe(true)
+    expect(detectPlanCompletion(t)).toBe(false) // 与 plan/calibrate 互不干扰
+  })
+
+  it('提取阶段小结：只取最后产出段，探索不混入', () => {
+    const t = newTaskState('g2')
+    t.activities = [
+      { Text: { text: '我先看下项目结构……', at: 1, turn: 1 } },
+      { ToolStart: { name: 'read', at: 2, turn: 1 } },
+      { Text: { text: '✅ 阶段 1 完成：add/list 可跑，测试通过', at: 3, turn: 2 } },
+      { Text: { text: `${CHECKPOINT_DONE_MARKER}`, at: 4, turn: 2 } },
+    ]
+    const summary = extractMarkerText(t, CHECKPOINT_DONE_MARKER)
+    expect(summary).toContain('阶段 1')
+    expect(summary).not.toContain('项目结构')
+    expect(summary).not.toContain(CHECKPOINT_DONE_MARKER)
+  })
+
+  it('多阶段循环：第二次检查点检测独立成立', () => {
+    const t = newTaskState('g3')
+    t.activities = [
+      { Text: { text: `阶段 1 小结 ${CHECKPOINT_DONE_MARKER}`, at: 1, turn: 2 } },
+      { ToolStart: { name: 'bash', at: 2, turn: 3 } },
+      { Text: { text: `阶段 2 小结：全部完成 ${CHECKPOINT_DONE_MARKER}`, at: 3, turn: 4 } },
+    ]
+    expect(detectMarker(t, CHECKPOINT_DONE_MARKER)).toBe(true)
+    expect(extractMarkerText(t, CHECKPOINT_DONE_MARKER)).toContain('阶段 2')
   })
 })

@@ -61,8 +61,8 @@ export interface TaskState {
   recovered: boolean
   /** 会话级 token 用量（assistant/message.usage 累积，§6 执行经济学） */
   usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; reasoningTokens: number }
-  /** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复（plan/permission/acceptance/cost/calibrate） */
-  waiting: { kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate'; reason: string; payload: Record<string, unknown> } | null
+  /** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复（plan/permission/acceptance/cost/calibrate/checkpoint） */
+  waiting: { kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate' | 'checkpoint'; reason: string; payload: Record<string, unknown> } | null
   /** 执行启动时的预设快照（§2.6：预设 = 执行契约，随任务生命周期延续） */
   preset: { id: string; name: string; mode: string; setting: string; approval: string; sandbox: string } | null
   /** 依赖契约快照（继承自卡的 deps；图 DAG 边 = 最新执行此字段） */
@@ -398,6 +398,8 @@ export type { TailEvent }
 export const PLAN_DONE_MARKER = '【计划完毕】'
 /** 需求校准的完成标记（D1.7：agent 产出验收标准提案）。 */
 export const CALIBRATE_DONE_MARKER = '【验收标准完毕】'
+/** 目标模式的阶段检查点标记（D1.8：agent 周期汇报进度小结，用户主观确认方向）。 */
+export const CHECKPOINT_DONE_MARKER = '【阶段完毕】'
 
 /** 最后一段连续 Text 产出（探索/工具调用等非 Text 活动中断；标记检测与提取共用的文本源） */
 function lastTextSegment(t: TaskState): string {

@@ -26,6 +26,7 @@ import {
   detectMarker,
   extractMarkerText,
   CALIBRATE_DONE_MARKER,
+  CHECKPOINT_DONE_MARKER,
   validateDeps,
   depsMet,
   unmetDeps,
@@ -361,10 +362,18 @@ async function main(): Promise<void> {
       finalPrompt = `${prompt}\n\n【协作方式：计划模式】请先产出一份计划（步骤/涉及文件/风险），
 用一行 "【计划完毕】" 结尾。产出计划后停下等待批复，不要开始执行。`
     }
+    // 目标模式（D1.8）：任务合约 + 周期性检查点 —— 无验收标准也能跑，阶段小结等用户主观确认方向
+    if (presetMode === 'goal') {
+      finalPrompt = `${prompt}\n\n【协作方式：目标模式】
+- 任务合约：Context（目标）如上；Request（交付物）→ 请先明确你理解的交付物；Output（输出形式）→ 代码/文件；Constraints（约束）→ 遵守沙箱与项目约定；Pause（暂停点）→ 每个可验收的阶段结束时暂停。
+- 每完成一个可独立验收的阶段，输出一段进度小结（做了什么/验证了什么/下一步），
+  用一行 "${CHECKPOINT_DONE_MARKER}" 结尾，然后停下等方向确认（继续/调整/停止）。`
+    }
     const groupTag = opts.groupTag
     void acp
       .sessionPrompt(sid, finalPrompt)
       .then(async (stopReason) => {
+        await waitTailer() // G6：ACP resolve 与 JSONL 落盘竞态——等 tailer fold 完最后的 text-chunks 再检测
         const at = nowMs()
         finishSession(proj, sid, stopReason, at)
         const t = proj.projects[proj.sessionProject[sid]]?.cards[proj.sessionCard[sid]]?.executions[sid]
@@ -417,6 +426,45 @@ async function main(): Promise<void> {
               // 计划已产出 → 跳过知识沉淀与验收（执行尚未发生）
               return
             }
+          // 目标模式检查点（D1.8）：agent 阶段小结（【阶段完毕】标记）→ 挂 Waiting{checkpoint} 等方向确认
+          // 审批姿态：yolo 跳过检查点（尽量连续执行）；ask/auto 卡住等主观确认
+          if (
+            presetMode === 'goal' && t.status === 'Done' && t.waiting === null &&
+            presetApproval !== 'yolo' && detectMarker(t, CHECKPOINT_DONE_MARKER)
+          ) {
+            const summary = extractMarkerText(t, CHECKPOINT_DONE_MARKER)
+            t.waiting = {
+              kind: 'checkpoint',
+              reason: `目标模式：agent 完成一个阶段（${t.turns} 轮），请确认方向（继续/调整/停止）`,
+              payload: { mode: 'goal', summary },
+            }
+            t.status = 'Running' // 等待批复中，非终态
+            storage.upsertExecution({
+              id: sid,
+              card_id: cardId,
+              status: 'Running',
+              preset_json: opts.presetSnapshot ?? '{}',
+              deps_json: '[]',
+              forked_from: forkedFrom,
+              started_at: t.started_at ?? null,
+              finished_at: null,
+              created_at: created,
+            })
+            storage.insertApproval({
+              id: 0,
+              project_id: projectId,
+              execution_id: sid,
+              kind: 'checkpoint',
+              payload: { mode: 'goal', summary },
+              reason: '目标模式：阶段小结，请确认方向',
+              outcome: null,
+              comment: null,
+              created_at: at,
+              decided_at: null,
+              suspended_at: null,
+            })
+            return
+          }
           // 知识沉淀（M4 §3.3）：Done 且 agent 有结论 → agent-generated 入库（裸跑对照组不沉淀，防 KB 污染）
           if (opts.brief !== false) {
             const conclusion = extractConclusion({
@@ -450,7 +498,8 @@ async function main(): Promise<void> {
           }
           // 阶段 2 · delivery 设定：强制验收门 —— Done 但无验收标准 → 挂 Waiting{acceptance}
           // （§2.2 交付档：强制验收清单缺失阻止；§3 验收门基于外部信号）
-          if (presetSetting === 'delivery' && t.status === 'Done' && t.waiting === null && !opts.criteria) {
+          // 审批姿态：yolo 跳过验收门（尽量连续执行——无标准直接 Done，有标准已在上面自动跑验收命令）
+          if (presetSetting === 'delivery' && t.status === 'Done' && t.waiting === null && !opts.criteria && presetApproval !== 'yolo') {
             t.waiting = { kind: 'acceptance', reason: '交付设定：任务完成，请验收（通过则 merge 知识，打回则重做）', payload: { setting: 'delivery' } }
             storage.insertApproval({
               id: 0,
@@ -546,6 +595,7 @@ async function main(): Promise<void> {
 2. 覆盖关键行为、边界、交付物；
 3. 最后用一行 "${CALIBRATE_DONE_MARKER}" 结尾，之后停下等待确认，不要开始执行。`
     void acp.sessionPrompt(sid, prompt).then(async (stopReason) => {
+      await waitTailer() // G6：同上（校准提案检测前等 tailer 追上）
       const at = nowMs()
       finishSession(proj, sid, stopReason, at)
       const t = proj.projects[projectId]?.cards[cardId]?.executions[sid]
@@ -582,6 +632,69 @@ async function main(): Promise<void> {
       })
     })
     return sid
+  }
+
+  /** 目标模式循环（D1.8）：批复后继续执行 → 检测阶段小结（【阶段完毕】）→ 再挂 checkpoint / 全部完成收尾。
+   *  steer：批复意见（批准 = 继续；拒绝 = 带修改意见调整方向）。 */
+  async function runGoalLoop(projectId: string, cardId: string, sid: string, steer?: string): Promise<void> {
+    const p = proj.projects[projectId]
+    const c = p?.cards[cardId]
+    if (!p || !c) return
+    const prompt = steer
+      ? `${steer}\n\n继续执行，完成当前阶段后用一行 "${CHECKPOINT_DONE_MARKER}" 结尾汇报。`
+      : `继续执行，完成当前阶段后用一行 "${CHECKPOINT_DONE_MARKER}" 结尾汇报。`
+    const stopReason = await acp.sessionPrompt(sid, prompt).catch((e) => {
+      console.error(`[goal] loop ${sid}:`, e)
+      return 'error'
+    })
+    await waitTailer() // G6：同上（目标模式循环检测前等 tailer 追上）
+    const at = nowMs()
+    finishSession(proj, sid, stopReason, at)
+    const t = proj.projects[projectId]?.cards[cardId]?.executions[sid]
+    if (!t) return
+    if (t.status === 'Done' && t.waiting === null && detectMarker(t, CHECKPOINT_DONE_MARKER)) {
+      const summary = extractMarkerText(t, CHECKPOINT_DONE_MARKER)
+      t.waiting = { kind: 'checkpoint', reason: `目标模式：agent 完成一个阶段（${t.turns} 轮），请确认方向（继续/调整/停止）`, payload: { mode: 'goal', summary } }
+      t.status = 'Running'
+      storage.upsertExecution({
+        id: sid, card_id: cardId, status: 'Running',
+        preset_json: '{}', deps_json: '[]',
+        forked_from: null, started_at: t.started_at ?? null, finished_at: null, created_at: at,
+      })
+      storage.insertApproval({
+        id: 0, project_id: projectId, execution_id: sid, kind: 'checkpoint',
+        payload: { mode: 'goal', summary }, reason: '目标模式：阶段小结，请确认方向',
+        outcome: null, comment: null, created_at: at, decided_at: null, suspended_at: null,
+      })
+      return
+    }
+    // 未产出检查点 → 全部阶段完成：落终态 + 结论沉淀（agent-generated）
+    storage.upsertExecution({
+      id: sid, card_id: cardId, status: t.status,
+      preset_json: '{}', deps_json: '[]',
+      forked_from: null, started_at: t.started_at ?? null, finished_at: t.finished_at ?? null, created_at: at,
+    })
+    const conclusion = extractConclusion({
+      taskTitle: c.title,
+      comments: t.comments.map((cm) => ({ who: cm.who, text: cm.text })),
+      activities: t.activities,
+      turns: t.turns,
+      status: t.status,
+    })
+    if (conclusion) {
+      const note = makeNote({
+        projectId,
+        title: conclusion.title,
+        content: conclusion.content,
+        tags: ['auto'],
+        keywords: conclusion.keywords,
+        summary: conclusion.summary,
+        sourceKind: 'task',
+        sourceRef: cardId,
+        trust: 'agent-generated',
+      })
+      storage.upsertNote(note)
+    }
   }
 
   class HttpError extends Error {
@@ -1021,6 +1134,16 @@ async function main(): Promise<void> {
             })
           }
         }
+        // 目标模式检查点决策（D1.8）：批准 = 继续下一阶段；拒绝 = 带修改意见调整方向（循环驱动）
+        if (appr.kind === 'checkpoint') {
+          const cardId = proj.sessionCard[sid]
+          const goalSteer = outcome === 'approved'
+            ? `[批复] 方向确认，继续。${comment ? `意见：${comment}` : ''}`
+            : `[批复] 需调整方向：${comment || '请调整后继续'}`
+          void runGoalLoop(appr.project_id, cardId, sid, goalSteer)
+          send(200, { ok: true, outcome, id })
+          return
+        }
         const steer = outcome === 'approved'
           ? `[批复] 已批准（${appr.kind}）：${comment || '继续执行'}`
           : `[批复] 已拒绝（${appr.kind}）：${comment || '请调整方案'}`
@@ -1236,6 +1359,11 @@ function latestExecution(card: CardState): CardState['executions'][string] | nul
   const order = card.exec_order.length ? card.exec_order : Object.keys(card.executions)
   const sid = order[order.length - 1]
   return (sid && card.executions[sid]) || null
+}
+
+/** G6：ACP session/prompt resolve 与 JSONL 落盘竞态——等 tailer（轮询 200ms）fold 完最后事件再检测产出标记。 */
+function waitTailer(ms = 600): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /** 构造一个 WebSocket 文本帧（服务端 → 客户端，未掩码）。 */
