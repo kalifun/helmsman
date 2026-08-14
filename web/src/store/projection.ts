@@ -63,11 +63,31 @@ export interface TaskState {
   last_seq: number;           // 已折叠到的日志 seq（增量同步水位）
   recovered: boolean;         // 服务重启后从会话日志重放标记
   /** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复 */
-  waiting?: { kind: 'plan' | 'permission' | 'acceptance' | 'cost'; reason: string; payload: Record<string, unknown> } | null;
+  waiting?: { kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate'; reason: string; payload: Record<string, unknown> } | null;
   /** 执行启动时的预设快照（§2.6：执行契约，随任务生命周期延续） */
   preset?: { id: string; name: string; mode: string; setting: string; approval: string; sandbox: string } | null;
   /** 依赖契约快照（继承自卡的 deps；图 DAG 边 = 最新执行此字段） */
   deps?: string[];
+}
+
+/** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复 */
+export interface Waiting {
+  kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate';
+  reason: string;
+  payload: Record<string, unknown>;
+}
+
+/** Waiting kind 中文标签（批复队列/抽屉/会话页共用） */
+export const WAITING_LABEL: Record<Waiting['kind'], string> = {
+  plan: '计划确认',
+  calibrate: '验收标准确认',
+  permission: '权限请求',
+  acceptance: '交付验收',
+  cost: '成本确认',
+};
+
+export function waitingLabel(kind: string): string {
+  return WAITING_LABEL[kind as Waiting['kind']] ?? kind;
 }
 
 /** 资产卡（O1=B）：卡 = 需求/缺陷/任务 + 里程碑，挂 executions（1 卡 N 执行） */
@@ -78,6 +98,7 @@ export interface CardState {
   kind?: string;              // 'requirement' | 'bug' | 'task'
   milestone?: string | null;
   deps?: string[];            // 依赖契约：完成本卡前需先完成的卡 id
+  criteria?: string | null;   // 需求契约：验收标准（D1.7 校准批准后写回）
   executions: Record<string, TaskState>;  // sid → 执行（键 = 会话 id）
   exec_order?: string[];      // 执行代次顺序（创建序；末位 = 最新）
   created_at?: number;
@@ -231,6 +252,8 @@ interface ProjectionState {
   createCard: (pid: string, input: api.CreateCardInput) => Promise<string | null>;
   /** fork：卡上派生新执行代次（from_execution_id 可选）；返回新执行（会话）id */
   forkExecution: (cardId: string, fromExecutionId?: string) => Promise<string | null>;
+  /** D1.7 需求校准：AI 探索提案验收标准 → 确认 → 写回 criteria；返回校准会话 id */
+  calibrateCard: (cardId: string) => Promise<string | null>;
   cancelTask: (sid: string) => Promise<boolean>;
   postComment: (sid: string, text: string) => Promise<boolean>;
   /** 显式注册项目（POST /api/projects）→ 刷新项目列表 → 返回注册结果 */
@@ -333,6 +356,18 @@ export const useProjection = create<ProjectionState>((set, get) => ({
   forkExecution: async (cardId, fromExecutionId) => {
     try {
       const r = await api.forkExecution(cardId, fromExecutionId);
+      set((s) => ({ revision: s.revision + 1 }));
+      await get().loadCard(cardId);
+      return r.session_id;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  },
+
+  calibrateCard: async (cardId) => {
+    try {
+      const r = await api.calibrateCard(cardId);
       set((s) => ({ revision: s.revision + 1 }));
       await get().loadCard(cardId);
       return r.session_id;

@@ -31,6 +31,7 @@ export function NewTaskModal() {
   const [milestone, setMilestone] = useState('');
   const [note, setNote] = useState('');
   const [depIds, setDepIds] = useState<string[]>([]);
+  const [calibrate, setCalibrate] = useState(false);
   const [busy, setBusy] = useState(false);
   const cards = useProjection((s) => (pid ? s.cards[pid] || {} : {}));
   const depOptions = Object.values(cards).sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0));
@@ -65,10 +66,11 @@ export function NewTaskModal() {
       milestone: milestone.trim() || undefined,
       preset: presetId || undefined,
       deps: depIds.length ? depIds : undefined,
+      calibrate: calibrate || undefined,
     });
     setBusy(false);
     if (cardId) {
-      toast('卡已创建，引擎自动跑首代执行');
+      toast(calibrate ? '卡已创建，先跑需求校准（AI 提案验收标准 → 你确认 → 再执行）' : '卡已创建，引擎自动跑首代执行');
       setOpen(false);
       setTitle('');
       setKind('task');
@@ -76,6 +78,7 @@ export function NewTaskModal() {
       setMilestone('');
       setNote('');
       setDepIds([]);
+      setCalibrate(false);
     } else {
       toast('创建失败，见错误横幅');
     }
@@ -156,8 +159,12 @@ export function NewTaskModal() {
       </div>
       <div className="field">
         <label>需求描述</label>
-        <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选：验收标准/约束/上下文（P1 需求校准流程会细化）" />
+        <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="可选：验收标准/约束/上下文（可勾选下方先校准，让 AI 提案验收标准）" />
       </div>
+      <label className="calibrate-opt" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, margin: '4px 0 10px', cursor: 'pointer' }}>
+        <input type="checkbox" checked={calibrate} onChange={(e) => setCalibrate(e.target.checked)} />
+        <span>先校准需求（D1.7）：AI 探索后提案验收标准 → 你确认 → 自动写回 → 再执行</span>
+      </label>
       <div className="field">
         <label>备注（作为首条执行上下文）</label>
         <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="可选" />

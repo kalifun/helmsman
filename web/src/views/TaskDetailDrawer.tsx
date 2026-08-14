@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useUi, writeHash, openSession, type DrawerTab } from '../store/ui';
 import { listApprovals, decideApproval, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL } from '../api/client';
 import {
-  useProjection, effectiveStatus, cardStatus, cardUnmet, fmtTime,
+  useProjection, effectiveStatus, cardStatus, cardUnmet, waitingLabel, fmtTime,
   latestExecution, executionList,
   type TaskState,
 } from '../store/projection';
@@ -95,6 +95,13 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
     } else {
       toast('fork 失败，见错误横幅');
     }
+  };
+
+  const calibrate = async () => {
+    if (!online) { toast('断连期间禁用控制操作'); return; }
+    const newSid = await useProjection.getState().calibrateCard(cardId);
+    if (newSid) toast('已发起需求校准：AI 探索提案验收标准 → 批复确认 → 自动写回');
+    else toast('校准发起失败，见错误横幅');
   };
 
   const cancel = async () => {
@@ -217,11 +224,20 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
           <span>{projects[pid]?.name ?? pid}</span>
           {task?.recovered ? <span className="rec" style={{ fontSize: 10, color: 'var(--text3)', border: '1px solid var(--line2)', borderRadius: 6, padding: '0 5px' }}>恢复</span> : null}
           {unmet.length ? <span style={{ color: 'var(--yellow)' }}>等上游：{unmet.join('、')}</span> : null}
-          {task?.waiting ? <span className="waiting-chip">⏸ 待批复：{task.waiting.kind}</span> : null}
+          {task?.waiting ? <span className="waiting-chip">⏸ 待批复：{waitingLabel(task.waiting.kind)}</span> : null}
           {st === 'Running' ? <Button mini variant="ghost" onClick={cancel} disabled={!online}>⏹ 停止</Button> : null}
           <Button mini variant="ghost" onClick={fork} disabled={!online || unmet.length > 0} title={unmet.length ? '等上游：依赖未完成，禁止启动' : '从当前执行派生新执行代次（保留原事件流）'}>⑂ fork</Button>
+          <Button mini variant="ghost" onClick={calibrate} disabled={!online} title="D1.7：AI 探索提案验收标准 → 你确认 → 自动写回卡的验收标准">🔬 校准需求</Button>
         </div>
       </div>
+
+      {/* 验收标准（需求契约，D1.7）：校准确认后写回，交付档执行完成按此验收 */}
+      {card.criteria ? (
+        <div className="criteria-bar">
+          <span className="criteria-label">验收标准</span>
+          <code className="criteria-text">{card.criteria}</code>
+        </div>
+      ) : null}
 
       {/* 依赖契约（目标契约 taskgraph）：依赖/被依赖，点 chip 跳到对应卡 */}
       {((task?.deps?.length ?? 0) > 0 || revDeps.length > 0) ? (
@@ -263,7 +279,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
       {task?.waiting ? (
         <div className="approval-bar">
           <div className="appr-bar-info">
-            <strong>⏸ 等待批复 · {task.waiting.kind}</strong>
+            <strong>⏸ 等待批复 · {waitingLabel(task.waiting.kind)}</strong>
             <div className="muted">{task.waiting.reason || '（无原因说明）'}</div>
             {task.waiting.payload?.plan ? (
               <details className="appr-plan" open>

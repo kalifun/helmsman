@@ -60,6 +60,7 @@ export interface CardDetail {
   kind: string;
   milestone?: string | null;
   deps?: string[];          // 依赖契约：完成本卡前需先完成的卡 id
+  criteria?: string | null; // 需求契约：验收标准（D1.7 校准批准后写回）
   created_at?: number;
   execution_count: number;
   project_id?: string;
@@ -78,6 +79,7 @@ export interface CreateCardInput {
   milestone?: string;
   preset?: string; // agent preset id（每任务工具/人格组装）
   deps?: string[]; // 依赖契约：同项目已存在卡的 id（完成本卡前需先完成）
+  calibrate?: boolean; // D1.6 时机①：先校准需求（AI 提案验收标准 → 确认 → 写回）再执行
 }
 export async function createCard(pid: string, input: CreateCardInput): Promise<{ card_id: string; session_id: string }> {
   const res = await fetch(BASE + '/projects/' + encodeURIComponent(pid) + '/cards', {
@@ -105,6 +107,20 @@ export async function forkExecution(cardId: string, fromExecutionId?: string): P
     throw new Error(`${res.status} ${body.slice(0, 200)}`);
   }
   return (await res.json()) as { session_id: string; forked_from?: string | null };
+}
+
+/** POST /api/cards/:cardId/calibrate —— D1.7 需求校准（AI 探索提案验收标准 → 确认 → 写回） */
+export async function calibrateCard(cardId: string): Promise<{ session_id: string }> {
+  const res = await fetch(BASE + '/cards/' + encodeURIComponent(cardId) + '/calibrate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`${res.status} ${body.slice(0, 200)}`);
+  }
+  return (await res.json()) as { session_id: string };
 }
 
 /** GET /api/tasks/:sid —— 单次执行（= 会话）TaskState（按 sid，不是卡 id） */

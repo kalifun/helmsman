@@ -7,12 +7,16 @@ import { Markdown } from '../components/Markdown';
 
 const KIND_LABEL: Record<string, string> = {
   plan: '计划确认',
+  calibrate: '验收标准提案',
+  permission: '权限请求',
+  acceptance: '交付验收',
+  cost: '成本确认',
   permission: '权限请求',
   acceptance: '验收',
   cost: '成本预算',
 };
 
-const KIND_ICON: Record<string, string> = { plan: 'doc', permission: 'lock', acceptance: 'check', cost: 'warn' };
+const KIND_ICON: Record<string, string> = { plan: 'doc', calibrate: 'doc', permission: 'lock', acceptance: 'check', cost: 'warn' };
 
 export function ApprovalsView({ pid }: { pid: string }) {
   const [items, setItems] = useState<ApprovalItem[]>([]);
@@ -63,6 +67,14 @@ export function ApprovalsView({ pid }: { pid: string }) {
                   return (
                     <details key={k} className="appr-plan" open>
                       <summary>📋 计划内容</summary>
+                      <div className="appr-plan-body"><Markdown text={v} /></div>
+                    </details>
+                  );
+                }
+                if (k === 'criteria_proposal' && typeof v === 'string' && v.length > 20) {
+                  return (
+                    <details key={k} className="appr-plan" open>
+                      <summary>🧪 验收标准提案（批准 → 写回卡的验收标准）</summary>
                       <div className="appr-plan-body"><Markdown text={v} /></div>
                     </details>
                   );

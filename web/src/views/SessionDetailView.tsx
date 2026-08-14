@@ -4,7 +4,7 @@
 // 数据：comments（user 消息）+ activities（agent 活动流）+ usage（成本）。
 import { useEffect, useRef, useState } from 'react';
 import { useUi, writeHash } from '../store/ui';
-import { useProjection, effectiveStatus, type TaskState } from '../store/projection';
+import { useProjection, effectiveStatus, waitingLabel, type TaskState } from '../store/projection';
 import { Button } from '../components/Button';
 import { TrajectoryView } from './TrajectoryView';
 import { Markdown } from '../components/Markdown';
@@ -95,7 +95,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
           <span className="sd-meta">
             {st === 'Running' ? <span className="dot ok" /> : null}
             {st} · {task?.model ?? '-'} · 回合 {task?.turns ?? 0}
-            {task?.waiting ? ` · ⏸ 待批复:${task.waiting.kind}` : ''}
+            {task?.waiting ? ` · ⏸ 待批复:${waitingLabel(task.waiting.kind)}` : ''}
           </span>
         </div>
         <div className="sd-tabs">
