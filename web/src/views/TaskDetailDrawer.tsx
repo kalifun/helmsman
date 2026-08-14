@@ -5,14 +5,16 @@
 // 轨迹 = dsh 轨迹模型（参考 packages/client/ui-trajectory）：按回合分组、每行 #N · 类型标签 · 单行摘要 ·
 // 偏移时间；工具行 call+result 合并（名称/成败/参数详情/耗时）；底部成本块 + 流式尾巴。
 import { useEffect, useRef, useState } from 'react';
-import { useUi, writeHash, type DrawerTab } from '../store/ui';
+import { useUi, writeHash, openSession, type DrawerTab } from '../store/ui';
 import { listApprovals, decideApproval, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL } from '../api/client';
 import {
-  useProjection, effectiveStatus, depsUnmet, estCost, cacheHitOf, fmtTime,
+  useProjection, effectiveStatus, depsUnmet, fmtTime,
   latestExecution, executionList,
-  type Activity, type TaskState,
+  type TaskState,
 } from '../store/projection';
 import { StatusPill } from '../components/StatusPill';
+import { TrajectoryView } from './TrajectoryView';
+import { Markdown } from '../components/Markdown';
 import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 
@@ -22,53 +24,6 @@ const TABS: { id: DrawerTab; label: string }[] = [
   { id: 'artifact', label: '产物' },
   { id: 'trajectory', label: '轨迹' },
 ];
-
-interface TrajRow {
-  idx: number;
-  turn: number;
-  at?: number;
-  kind: 'text' | 'think' | 'tool';
-  name?: string;
-  args?: string;
-  err?: boolean;
-  text?: string;
-  /** 工具耗时 ms（result.at - start.at） */
-  ms?: number;
-}
-
-/** 活动 → 轨迹行（合并 ToolStart/ToolResult；带 at/turn 供分组与耗时） */
-function toRows(t: TaskState): TrajRow[] {
-  const toolById: Record<string, { args: string }> = {};
-  (t.tool_calls || []).forEach((tc) => { toolById[tc.call_id] = tc; });
-  const rows: TrajRow[] = [];
-  const acts = t.activities;
-  let i = 0;
-  while (i < acts.length) {
-    const a: Activity = acts[i];
-    if ('ToolStart' in a) {
-      let res: Activity | null = null;
-      let j = i + 1;
-      if (j < acts.length && 'ToolResult' in acts[j]) { res = acts[j]; j++; }
-      const tr = res && 'ToolResult' in res ? res.ToolResult : null;
-      const startAt = a.ToolStart.at;
-      rows.push({
-        idx: i, turn: a.ToolStart.turn ?? 0, at: startAt,
-        kind: 'tool', name: a.ToolStart.name,
-        args: tr ? toolById[tr.name]?.args : '',
-        err: tr ? tr.is_error : false,
-        ms: startAt != null && tr?.at != null ? Math.max(0, tr.at - startAt) : undefined,
-      });
-      i = j;
-    } else if ('Reasoning' in a) {
-      rows.push({ idx: i, turn: a.Reasoning.turn ?? 0, at: a.Reasoning.at, kind: 'think', text: a.Reasoning.text }); i++;
-    } else if ('Text' in a) {
-      rows.push({ idx: i, turn: a.Text.turn ?? 0, at: a.Text.at, kind: 'text', text: a.Text.text }); i++;
-    } else { i++; }
-  }
-  return rows;
-}
-
-const TAG: Record<TrajRow['kind'], string> = { tool: '工具', think: '思考', text: '消息' };
 
 export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string }) {
   const tab = useUi((s) => s.tab);
@@ -194,7 +149,9 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
         </>
       );
     }
-    return renderTrajectory();
+    return task ? (
+      <TrajectoryView task={task} stream={tab === 'trajectory' ? stream : undefined} />
+    ) : null;
   };
 
   const renderComments = () => {
@@ -227,116 +184,14 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
   };
 
   // —— 轨迹（dsh 模型：按回合分组 · #N 行记录 · 偏移时间 · 工具耗时）——
-  const renderTrajectory = () => {
-    const rows = task ? toRows(task) : [];
-    const runningNow = st === 'Running' || st === 'Waiting';
-    const base = task?.started_at ?? rows[0]?.at;
-    const cost = estCost(execUsage);
-    const hit = cacheHitOf(execUsage);
-
-    // 按回合分组
-    const groups: { turn: number; rows: TrajRow[] }[] = [];
-    rows.forEach((r) => {
-      const g = groups[groups.length - 1];
-      if (!g || g.turn !== r.turn) groups.push({ turn: r.turn, rows: [r] });
-      else g.rows.push(r);
-    });
-
-    const offset = (at?: number): string => {
-      if (at == null || base == null) return '';
-      const ms = at - base;
-      return '+' + (ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms');
-    };
-
-    return (
-      <>
-        <div className="sess-meta">
-          <span className="kv">模型 <b>{task?.model || '-'}</b></span>
-          <span className="kv">回合 <b>{task?.turns ?? 0}</b></span>
-          <span className="kv">步骤 <b>{task?.steps ?? 0}</b></span>
-          <span className="kv">seq <b>{task?.last_seq ?? 0}</b></span>
-        </div>
-        {groups.length === 0 && !stream && <div className="ph-empty">暂无轨迹（引擎执行中或未开始）</div>}
-        {groups.map((g) => (
-          <div key={g.turn} className="traj-group">
-            <div className="traj-group-head">回合 {g.turn || 1}</div>
-            {g.rows.map((r, k) => {
-              const label = TAG[r.kind];
-              const time = offset(r.at);
-              const isErr = r.kind === 'tool' && r.err;
-              if (r.kind === 'think') {
-                return (
-                  <details key={k} className="traj-row" data-kind="think">
-                    <summary className="traj-main">
-                      <span className="traj-index">#{r.idx + 1}</span>
-                      <span className="traj-tag" data-kind="think">{label}</span>
-                      <span className="traj-text">{r.text?.slice(0, 60) || '思考'}</span>
-                      <span className="traj-time">{time}</span>
-                    </summary>
-                    <div className="traj-detail think">{r.text}</div>
-                  </details>
-                );
-              }
-              if (r.kind === 'tool') {
-                return (
-                  <details key={k} className="traj-row" data-kind="tool" data-err={isErr || undefined}>
-                    <summary className="traj-main">
-                      <span className="traj-index">#{r.idx + 1}</span>
-                      <span className="traj-tag" data-kind="tool">{label}</span>
-                      <span className="traj-tool-name">{r.name}</span>
-                      <span className={r.err ? 'err' : 'ok'}>{r.err ? '失败' : '成功'}</span>
-                      {r.ms != null ? <span className="traj-ms">{r.ms} ms</span> : null}
-                      <span className="traj-time">{time}</span>
-                    </summary>
-                    {r.args ? <div className="traj-detail mono">{r.args}</div> : null}
-                  </details>
-                );
-              }
-              const errCls = (r.text || '').indexOf('失败') === 0 ? ' err' : '';
-              return (
-                <div key={k} className="traj-row" data-kind="text">
-                  <span className="traj-index">#{r.idx + 1}</span>
-                  <span className="traj-tag" data-kind="text">{label}</span>
-                  <span className={'traj-text' + errCls}>{r.text}</span>
-                  <span className="traj-time">{time}</span>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-        {runningNow && stream ? (
-          <div className="traj-row" data-kind="text" data-stream="true">
-            <span className="traj-index">▌</span>
-            <span className="traj-tag" data-kind="text">流</span>
-            <span className="traj-text">{stream}</span>
-          </div>
-        ) : null}
-        {runningNow ? <div className="sess-caret">▌</div> : null}
-
-        {execUsage ? (
-          <div className="cost-block">
-            <div className="t">回合成本（本执行）</div>
-            <div className="cost-row">
-              <span>
-                输入 {execUsage.inputTokens.toLocaleString()} · 输出 {execUsage.outputTokens.toLocaleString()} · 缓存读 {execUsage.cacheReadTokens.toLocaleString()} · 思考 {execUsage.reasoningTokens.toLocaleString()}
-              </span>
-            </div>
-            <div className="cost-row"><span>缓存命中率（本执行）</span><b>{hit == null ? '—' : Math.round(hit * 100) + '%'}</b></div>
-            <div className="cost-row total"><span>估算</span><span>¥ {cost == null ? '—' : cost.toFixed(4)}</span></div>
-            <div className="ph-hint2" style={{ marginTop: 6 }}>定价表：输入 ¥2 / 输出 ¥8 / 缓存读 ¥0.2 / 思考 ¥8（每 M token）</div>
-          </div>
-        ) : (
-          <div className="note">usage 从 WS assistant/message 累积；无数据（服务重启前已完成的会话）显示 —。</div>
-        )}
-      </>
-    );
-  };
+;
 
   return (
     <aside id="drawer" className="open">
       <div className="drawer-head">
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <h2 style={{ flex: 1, minWidth: 0 }}>{card.title || cardId.slice(0, 16)}</h2>
+          <Button mini variant="ghost" onClick={() => openSession(pid, sid, useUi.getState().view, cardId)} title="进入全屏会话（可继续聊）">↗ 进入会话</Button>
           <Button variant="icon" onClick={close} title="关闭（Esc）" aria-label="关闭">
             <Icon name="plus" size="sm" style={{ transform: 'rotate(45deg)' }} />
           </Button>
@@ -364,6 +219,12 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
           <div className="appr-bar-info">
             <strong>⏸ 等待批复 · {task.waiting.kind}</strong>
             <div className="muted">{task.waiting.reason || '（无原因说明）'}</div>
+            {task.waiting.payload?.plan ? (
+              <details className="appr-plan" open>
+                <summary>📋 计划内容</summary>
+                <div className="appr-plan-body"><Markdown text={task.waiting.payload.plan as string} /></div>
+              </details>
+            ) : null}
           </div>
           <div className="appr-bar-actions">
             <Button mini variant="primary" onClick={() => void decideWaiting('approved')} disabled={!online}>✅ 批准继续</Button>

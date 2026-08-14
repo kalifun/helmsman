@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
 import { listApprovals, decideApproval, type ApprovalItem } from '../api/client';
+import { Markdown } from '../components/Markdown';
 
 const KIND_LABEL: Record<string, string> = {
   plan: '计划确认',
@@ -57,9 +58,17 @@ export function ApprovalsView({ pid }: { pid: string }) {
             </div>
             <div className="appr-reason">{a.reason || '（无原因说明）'}</div>
             <div className="appr-payload">
-              {Object.entries(a.payload).map(([k, v]) => (
-                <span key={k} className="tag">{k}: {String(v).slice(0, 60)}</span>
-              ))}
+              {Object.entries(a.payload).map(([k, v]) => {
+                if (k === 'plan' && typeof v === 'string' && v.length > 40) {
+                  return (
+                    <details key={k} className="appr-plan" open>
+                      <summary>📋 计划内容</summary>
+                      <div className="appr-plan-body"><Markdown text={v} /></div>
+                    </details>
+                  );
+                }
+                return <span key={k} className="tag">{k}: {String(v).slice(0, 60)}</span>;
+              })}
             </div>
             <div className="appr-actions">
               <input
