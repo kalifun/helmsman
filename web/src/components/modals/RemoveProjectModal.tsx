@@ -21,7 +21,7 @@ export function RemoveProjectModal({ pid, name, onClose }: { pid: string; name: 
       removePending(pid);
       toast(mode === 'archive' ? '已移除（可恢复）· 重新导入同目录即可找回' : '已彻底清理');
       onClose();
-      useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments' });
+      useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments', sessionId: null });
       writeHash(null, 'home', null, 'comments');
     } else {
       toast('移除失败');

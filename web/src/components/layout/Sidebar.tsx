@@ -56,7 +56,7 @@ export function Sidebar() {
               className={'side-item' + (active ? ' active' : '')}
               style={{ ['--i' as string]: k }}
               onClick={() => {
-                useUi.getState().setRoute({ pid: p.id, view: 'projhome', openId: null, tab: 'comments' });
+                useUi.getState().setRoute({ pid: p.id, view: 'projhome', openId: null, tab: 'comments', sessionId: null });
                 writeHash(p.id, 'projhome', null, 'comments');
               }}
             >

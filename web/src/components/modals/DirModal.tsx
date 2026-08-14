@@ -56,7 +56,7 @@ export function DirModal() {
 
   const enter = (id: string, n: string, p: string) => {
     setOpen(false);
-    useUi.getState().setRoute({ pid: id, view: 'projhome', openId: null, tab: 'comments' });
+    useUi.getState().setRoute({ pid: id, view: 'projhome', openId: null, tab: 'comments', sessionId: null });
     writeHash(id, 'projhome', null, 'comments');
     void n; void p;
   };

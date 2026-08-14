@@ -33,7 +33,7 @@ export function Topbar() {
     <>
       <a
         onClick={() => {
-          useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments' });
+          useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments', sessionId: null });
           writeHash(null, 'home', null, 'comments');
         }}
       >
@@ -59,7 +59,7 @@ export function Topbar() {
         <button
           className="logo"
           onClick={() => {
-            useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments' });
+            useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments', sessionId: null });
             writeHash(null, 'home', null, 'comments');
           }}
         >
@@ -80,7 +80,7 @@ export function Topbar() {
             title={online ? undefined : '断连期间禁用控制操作'}
             onClick={() => {
               if (!pid) return;
-              useUi.getState().setRoute({ openId: null });
+              useUi.getState().setRoute({ openId: null, sessionId: null });
               setNewTaskOpen(true);
             }}
           >
