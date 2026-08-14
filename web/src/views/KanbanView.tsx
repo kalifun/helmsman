@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react';
 import { useUi, writeHash } from '../store/ui';
 import {
-  useProjection, cardStatus, latestExecution, depsUnmet, activityText, fmtTime,
+  useProjection, cardStatus, latestExecution, cardUnmet, activityText, fmtTime,
   type CardState, type TaskState,
 } from '../store/projection';
 import { Skeleton } from '../components/Skeleton';
@@ -36,17 +36,17 @@ export function KanbanView({ pid }: { pid: string }) {
     writeHash(pid, 'kanban', cardId, 'comments');
   };
 
-  const runCard = (_c: CardState) => {
-    // 真实契约：建卡即自动跑首代；独立 run 接口 = 目标契约（P0 未开）。
+  const runCard = async (c: CardState) => {
+    // §2.1 调度门：依赖未完成 → 服务端 409（前端已禁用按钮，双保险）
     if (conn !== 'online') { toast('断连期间禁用控制操作'); return; }
-    useProjection.getState().loadProject(pid);
-    toast('执行已入队 · 引擎自动执行（fork = 卡上起新执行代次）');
+    const sid = await useProjection.getState().forkExecution(c.id, undefined);
+    if (sid) toast('已启动执行');
   };
 
-  const retryCard = (_c: CardState) => {
+  const retryCard = async (c: CardState) => {
     if (conn !== 'online') { toast('断连期间禁用控制操作'); return; }
-    toast('重跑 = fork 新执行代次（保留原事件流供 diff）· 评论即控制');
-    useProjection.getState().loadProject(pid);
+    const sid = await useProjection.getState().forkExecution(c.id, undefined);
+    if (sid) toast('重跑 = 新执行代次（保留原事件流供 diff）');
   };
 
   const onDrop = (c: CardState, target: string) => {
@@ -109,19 +109,19 @@ export function KanbanView({ pid }: { pid: string }) {
                 const st = cardStatus(c);
                 const locked = st === 'Running' || st === 'Waiting';
                 const exec = latestExecution(c);
-                const unmet = exec ? depsUnmet(exec, byIdExec(byId, c.id)) : [];
+                const unmet = cardUnmet(c, byId);
                 const lastAct = exec && exec.activities.length ? exec.activities[exec.activities.length - 1] : null;
                 let act: React.ReactNode = null;
                 if (st === 'Pending') {
                   act = unmet.length
                     ? <span className="run-state">等上游：{unmet.join('、')}</span>
-                    : <button className="btn mini" onClick={(e) => { e.stopPropagation(); runCard(c); }}>运行</button>;
+                    : <button className="btn mini" onClick={(e) => { e.stopPropagation(); void runCard(c); }}>运行</button>;
                 } else if (st === 'Running') {
                   act = <span className="run-state">运行中 · 锁死（评论即控制）</span>;
                 } else if (st === 'Waiting') {
                   act = <span className="waiting-q">等待批复 · 锁死</span>;
                 } else if (st === 'Failed' || st === 'Cancelled') {
-                  act = <button className="btn mini ghost" onClick={(e) => { e.stopPropagation(); retryCard(c); }}>重跑</button>;
+                  act = <button className="btn mini ghost" onClick={(e) => { e.stopPropagation(); void retryCard(c); }}>重跑</button>;
                 }
                 return (
                   <div
@@ -169,16 +169,4 @@ export function KanbanView({ pid }: { pid: string }) {
       })}
     </div>
   );
-}
-
-/** 依赖查询用：卡字典 → 执行字典（依赖 = 目标契约，键按卡 id 兜底） */
-function byIdExec(cards: Record<string, CardState>, selfId: string): Record<string, TaskState> {
-  const out: Record<string, TaskState> = {};
-  Object.values(cards).forEach((c) => {
-    const e = latestExecution(c);
-    if (e) { out[c.id] = e; out[e.id] = e; }
-  });
-  const self = cards[selfId];
-  if (self) delete out[selfId];
-  return out;
 }

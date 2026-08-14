@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useUi, writeHash, openSession, type DrawerTab } from '../store/ui';
 import { listApprovals, decideApproval, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL } from '../api/client';
 import {
-  useProjection, effectiveStatus, depsUnmet, cardStatus, fmtTime,
+  useProjection, effectiveStatus, cardStatus, cardUnmet, fmtTime,
   latestExecution, executionList,
   type TaskState,
 } from '../store/projection';
@@ -47,8 +47,6 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
   cardExecs.forEach((e) => { byId[e.id] = e; });
   // 依赖契约（目标契约 taskgraph）：deps 是卡 id → 卡最新执行；反向扫描被依赖
   const allCards = useProjection((s) => s.cards[pid] || {});
-  const cardsById: Record<string, TaskState> = {};
-  Object.values(allCards).forEach((c) => { const le = latestExecution(c); if (le) cardsById[c.id] = le; });
   const revDeps = Object.values(allCards)
     .filter((c) => c.deps?.includes(cardId))
     .map((c) => ({ id: c.id, title: c.title, status: cardStatus(c) }));
@@ -79,7 +77,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
   if (!card) return <aside id="drawer" />;
   const st = task ? effectiveStatus(task) : 'Pending';
   const locked = st === 'Running' || st === 'Waiting';
-  const unmet = task ? depsUnmet(task, cardsById) : [];
+  const unmet = cardUnmet(card, allCards);   // §2.1 调度门：等上游（卡无执行也算）
   const comments = task?.comments || [];
   const online = conn === 'online';
 
@@ -221,7 +219,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
           {unmet.length ? <span style={{ color: 'var(--yellow)' }}>等上游：{unmet.join('、')}</span> : null}
           {task?.waiting ? <span className="waiting-chip">⏸ 待批复：{task.waiting.kind}</span> : null}
           {st === 'Running' ? <Button mini variant="ghost" onClick={cancel} disabled={!online}>⏹ 停止</Button> : null}
-          <Button mini variant="ghost" onClick={fork} disabled={!online} title="从当前执行派生新执行代次（保留原事件流）">⑂ fork</Button>
+          <Button mini variant="ghost" onClick={fork} disabled={!online || unmet.length > 0} title={unmet.length ? '等上游：依赖未完成，禁止启动' : '从当前执行派生新执行代次（保留原事件流）'}>⑂ fork</Button>
         </div>
       </div>
 
@@ -296,7 +294,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
               {e.status === 'Running' ? <span className="ellip" style={{ maxWidth: 60 }}> · 运行中</span> : null}
             </button>
           ))}
-          <Button mini variant="ghost" onClick={fork} disabled={!online} title="从当前执行派生新执行">+ fork</Button>
+          <Button mini variant="ghost" onClick={fork} disabled={!online || unmet.length > 0} title={unmet.length ? '等上游：依赖未完成，禁止启动' : '从当前执行派生新执行'}>+ fork</Button>
         </div>
       ) : null}
 

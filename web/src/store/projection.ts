@@ -167,6 +167,20 @@ export function depsUnmet(t: TaskState, tasksById: Record<string, TaskState>): s
     .map((dep) => dep.title || dep.id);
 }
 
+/** 卡级依赖未完成（§2.1 调度门"等上游"）：卡无执行也算（等上游 = 无执行代次）。
+ *  返回未完成依赖的标题列表；依赖卡不存在也计未完成。 */
+export function cardUnmet(card: CardState | undefined | null, cardsById: Record<string, CardState>): string[] {
+  if (!card?.deps?.length) return [];
+  return card.deps
+    .map((d) => cardsById[d])
+    .filter((dc) => {
+      if (!dc) return true;
+      const le = latestExecution(dc);
+      return !le || effectiveStatus(le) !== 'Done';
+    })
+    .map((dc) => dc?.title || '（已删除）');
+}
+
 /** 活动摘要文本（看板卡末条/首页正在发生用） */
 export function activityText(a: Activity): string {
   if ('Reasoning' in a) return a.Reasoning.text;

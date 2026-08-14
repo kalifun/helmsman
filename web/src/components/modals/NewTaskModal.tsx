@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { Modal } from '../Modal';
 import { Button } from '../Button';
 import { useUi } from '../../store/ui';
-import { useProjection, cardStatus } from '../../store/projection';
+import { useProjection, cardStatus, latestExecution } from '../../store/projection';
 import { listProfiles, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL, type Profile } from '../../api/client';
 import { StatusPill } from '../StatusPill';
 
@@ -34,6 +34,12 @@ export function NewTaskModal() {
   const [busy, setBusy] = useState(false);
   const cards = useProjection((s) => (pid ? s.cards[pid] || {} : {}));
   const depOptions = Object.values(cards).sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0));
+  // §2.1 调度门：所选依赖若未完成 → 卡将"等上游"，不自动执行（解锁后自动启动）
+  const hasUnmetDep = depIds.some((d) => {
+    const dc = cards[d];
+    const le = dc ? latestExecution(dc) : null;
+    return !le || cardStatus(dc) !== 'Done';
+  });
 
   // 打开时加载项目 Profile（默认项预填 —— 用户可见，§2.6"建卡预填"）
   useEffect(() => {
@@ -142,6 +148,11 @@ export function NewTaskModal() {
             })}
           </div>
         )}
+        {hasUnmetDep ? (
+          <div className="ph-hint2" style={{ marginTop: 4, color: 'var(--yellow)' }}>
+            ⏳ 所选依赖未完成 —— 卡将"等上游"，不自动执行；上游完成时自动启动。
+          </div>
+        ) : null}
       </div>
       <div className="field">
         <label>需求描述</label>
