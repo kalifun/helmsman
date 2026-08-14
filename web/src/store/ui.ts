@@ -2,7 +2,7 @@
 // hash 路由契约与原型一致： #pid=&view=&open=&tab= （view: home|projhome|kanban|chat|graph|kb|files）。
 import { create } from 'zustand';
 
-export type ViewId = 'home' | 'projhome' | 'kanban' | 'chat' | 'sessions' | 'graph' | 'kb' | 'files' | 'experiment' | 'approvals';
+export type ViewId = 'home' | 'projhome' | 'kanban' | 'chat' | 'sessions' | 'graph' | 'kb' | 'files' | 'metrics' | 'experiment' | 'approvals';
 export type DrawerTab = 'comments' | 'brief' | 'artifact' | 'trajectory';
 
 interface ToastItem {

@@ -8,7 +8,7 @@ import { Button } from '../Button';
 
 const VIEW_LABEL: Record<string, string> = {
   projhome: '首页', kanban: '看板', chat: '会话',
-  sessions: '会话记录', graph: '图', kb: '知识库', files: '文件',
+  sessions: '会话记录', graph: '图', kb: '知识库', files: '文件', metrics: '度量',
 };
 
 export function Topbar() {

@@ -25,6 +25,7 @@ import { EventsClient } from './api/events';
 import type { IconName } from './components/icons';
 import { Button } from './components/Button';
 import { ExperimentView } from './views/ExperimentView';
+import { MetricsView } from './views/MetricsView';
 import { ApprovalsView } from './views/ApprovalsView';
 import { SessionDetailView } from './views/SessionDetailView';
 
@@ -36,6 +37,7 @@ const VIEW_ITEMS: { id: ViewId; label: string; icon: IconName }[] = [
   { id: 'graph', label: '图', icon: 'graph' },
   { id: 'kb', label: '知识库', icon: 'kb' },
   { id: 'files', label: '文件', icon: 'folder' },
+  { id: 'metrics', label: '度量', icon: 'graph' },
   { id: 'experiment', label: '实验', icon: 'graph' },
   { id: 'approvals', label: '批复', icon: 'lock' },
 ];
@@ -169,6 +171,7 @@ export default function App() {
               {!sessionId && pid && view === 'graph' ? <GraphView pid={pid} /> : null}
               {!sessionId && pid && view === 'kb' ? <KnowledgeBaseView pid={pid} /> : null}
               {pid && view === 'files' ? <FilesView pid={pid} /> : null}
+              {pid && view === 'metrics' ? <MetricsView pid={pid} /> : null}
               {pid && view === 'experiment' ? <ExperimentView pid={pid} /> : null}
               {pid && view === 'approvals' ? <ApprovalsView pid={pid} /> : null}
               {openId && pid ? <TaskDetailDrawer pid={pid} cardId={openId} /> : null}

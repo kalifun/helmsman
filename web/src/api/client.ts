@@ -296,3 +296,31 @@ export const SANDBOX_LABEL: Record<Profile['sandbox'], string> = { 'read-only': 
 export function profileSummary(p: Profile): string {
   return `${MODE_LABEL[p.mode]} × ${SETTING_LABEL[p.setting]} × ${APPROVAL_LABEL[p.approval]}`;
 }
+
+// ---------- 度量（M4 §5.2 序列任务曲线 / 度量面板） ----------
+
+/** 单次执行度量（metrics 表行） */
+export interface MetricRow {
+  id: number;
+  project_id: string;
+  task_id: string;
+  brief_snapshot: Array<{ id: string; title: string; score: number }>;
+  outcome: string;
+  cited_entries: string[];
+  turns: number;
+  steps: number;
+  group_tag?: string;
+  verified?: boolean;
+  cost: number;
+  cache_hit: number;
+  in_tokens: number;
+  cache_tokens: number;
+  out_tokens: number;
+  reason_tokens: number;
+  created_at: number;
+}
+
+/** GET /api/metrics?project= —— 项目全部执行度量（按时间倒序，前端转正序画序列曲线） */
+export function getMetrics(pid: string): Promise<MetricRow[]> {
+  return req<MetricRow[]>('/metrics?project=' + encodeURIComponent(pid));
+}
