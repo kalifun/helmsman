@@ -101,9 +101,10 @@ export function newTaskState(sid: string): TaskState {
   }
 }
 
-/** 依赖契约校验（目标契约 taskgraph）：数组 + 同项目存在 + 无自依赖；返回去重后的规范 id 列表。
- *  非法输入抛错（调用方转 HttpError 400）；undefined → 空数组（无依赖）。 */
-export function validateDeps(deps: unknown, knownIds: Iterable<string>, selfId: string): string[] {
+/** 依赖契约校验（目标契约 taskgraph）：数组 + 同项目存在 + 无自依赖 + 无循环；返回去重后的规范 id 列表。
+ *  非法输入抛错（调用方转 HttpError 400）；undefined → 空数组（无依赖）。
+ *  getDeps 可选：卡 id → 其依赖，用于循环检测（新依赖走旧卡依赖链是否回到 selfId）。 */
+export function validateDeps(deps: unknown, knownIds: Iterable<string>, selfId: string, getDeps?: (id: string) => string[]): string[] {
   if (deps === undefined) return []
   if (!Array.isArray(deps) || !deps.every((d): d is string => typeof d === 'string' && d.length > 0)) {
     throw new Error('deps must be an array of card ids')
@@ -113,9 +114,49 @@ export function validateDeps(deps: unknown, knownIds: Iterable<string>, selfId: 
   for (const d of new Set(deps)) {
     if (d === selfId) throw new Error('card cannot depend on itself')
     if (!known.has(d)) throw new Error(`dep '${d}' not in project`)
+    if (getDeps && leadsToSelf(d, selfId, getDeps)) throw new Error(`依赖成环：'${d}' 的依赖链回到本卡`)
     out.push(d)
   }
   return out
+}
+
+/** DFS：从 start 沿依赖链能否到达 selfId（新增边 → 循环）。 */
+function leadsToSelf(start: string, selfId: string, getDeps: (id: string) => string[]): boolean {
+  const seen = new Set<string>()
+  const stack = [start]
+  while (stack.length) {
+    const cur = stack.pop()!
+    if (cur === selfId) return true
+    if (seen.has(cur)) continue
+    seen.add(cur)
+    stack.push(...getDeps(cur))
+  }
+  return false
+}
+
+/** 卡的最新一次执行（exec_order 优先，回退字典序兜底） */
+export function latestExecutionState(card: CardState): TaskState | null {
+  const order = card.exec_order.length ? card.exec_order : Object.keys(card.executions)
+  const sid = order[order.length - 1]
+  return (sid && card.executions[sid]) || null
+}
+
+/** 依赖门判定（§2.1 调度门）：卡的所有依赖卡最新执行均 Done → true（可启动）。 */
+export function depsMet(card: Pick<CardState, 'deps'>, cardsById: Record<string, CardState>): boolean {
+  return (card.deps ?? []).every((d) => {
+    const dc = cardsById[d]
+    const le = dc ? latestExecutionState(dc) : null
+    return !!le && le.status === 'Done'
+  })
+}
+
+/** 未完成的依赖卡 id 列表（顺序保持 deps 声明序；依赖门=调度门，未完成即"等上游"） */
+export function unmetDeps(card: Pick<CardState, 'deps'>, cardsById: Record<string, CardState>): string[] {
+  return (card.deps ?? []).filter((d) => {
+    const dc = cardsById[d]
+    const le = dc ? latestExecutionState(dc) : null
+    return !le || le.status !== 'Done'
+  })
 }
 
 export function newCardState(meta: CardMeta): CardState {

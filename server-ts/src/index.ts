@@ -24,6 +24,8 @@ import {
   detectPlanCompletion,
   extractPlanText,
   validateDeps,
+  depsMet,
+  unmetDeps,
   type CardMeta,
   type CardState,
   type Project,
@@ -238,8 +240,13 @@ async function main(): Promise<void> {
       const card = proj.projects[pid]?.cards[cardId]
       const t = card?.executions[te.sessionId]
       if (t) {
+        const before = t.status
         foldTask(t, te.event)
         broadcast(te.event)
+        // 调度门自动推进：刚完成 → 解锁的下游（无执行代次且 deps 全 Done）自动启动（并行分支，幂等）
+        if (before !== 'Done' && t.status === 'Done') {
+          void kickStartDownstream(pid)
+        }
       }
     }
   })
@@ -277,6 +284,12 @@ async function main(): Promise<void> {
     const p = proj.projects[projectId]
     const c = p?.cards[cardId]
     if (!p || !c) throw new HttpError(404, `card '${cardId}' not found`)
+    // 依赖门（§2.1 调度门，非展示）：依赖全部完成（最新执行 Done）才允许启动；未完成 → 409 等上游
+    const unmet = unmetDeps(c, p.cards)
+    if (unmet.length) {
+      const names = unmet.map((d) => p.cards[d]?.title ?? d).join('、')
+      throw new HttpError(409, `依赖未完成（等上游）：${names}`)
+    }
     const sid = await acp.sessionNew(p.path, opts.presetId ?? undefined)
     registerSession(proj, sid, projectId, cardId)
     // 依赖契约快照：继承卡 deps（目标契约 taskgraph；图 DAG 边 = 最新执行此字段）
@@ -485,6 +498,19 @@ async function main(): Promise<void> {
     return sid
   }
 
+  /** 调度门自动推进：扫描项目内"已解锁未执行"的卡（无执行代次且 deps 全 Done），自动启动。并行分支。 */
+  function kickStartDownstream(projectId: string): void {
+    const p = proj.projects[projectId]
+    if (!p) return
+    for (const card of Object.values(p.cards)) {
+      if (card.exec_order.length > 0) continue
+      if (!depsMet(card, p.cards)) continue
+      void startExecution(projectId, card.id, null).catch((e) => {
+        console.warn(`[sched] auto-start ${card.id} failed: ${e instanceof Error ? e.message : e}`)
+      })
+    }
+  }
+
   class HttpError extends Error {
     constructor(public status: number, message: string) {
       super(message)
@@ -632,10 +658,10 @@ async function main(): Promise<void> {
         const cardId = genCardId()
         const created = nowMs()
         const criteria = typeof body.acceptance === 'string' && body.acceptance.trim() ? body.acceptance.trim() : null
-        // 依赖契约（目标契约 taskgraph）：deps = 同项目已存在卡的 id 数组
+        // 依赖契约（目标契约 taskgraph）：deps = 同项目已存在卡的 id 数组（含循环检测）
         let deps: string[] = []
         try {
-          deps = validateDeps(body.deps, Object.keys(proj.projects[pid]?.cards ?? {}), cardId)
+          deps = validateDeps(body.deps, Object.keys(proj.projects[pid]?.cards ?? {}), cardId, (id) => proj.projects[pid]?.cards[id]?.deps ?? [])
         } catch (e) {
           throw new HttpError(400, e instanceof Error ? e.message : 'bad deps')
         }
@@ -664,13 +690,18 @@ async function main(): Promise<void> {
         const presetSnapshot = profile
           ? { id: profile.id, name: profile.name, mode: profile.mode, setting: profile.setting, approval: profile.approval, sandbox: profile.sandbox }
           : null
-        const sid = await startExecution(pid, cardId, null, {
-          brief, groupTag, criteria,
-          // 注意：Profile 是三轴语义（协作方式/执行设定/审批/沙箱），不是 dsh 引擎 preset——
-          // 不把 profile.id 透传给 _meta.agentPreset（引擎 preset 是独立的"工具集定制"，P0 不同步）
-          presetSnapshot: presetSnapshot ? JSON.stringify(presetSnapshot) : null,
-        })
-        send(201, { card_id: cardId, session_id: sid, preset: presetSnapshot })
+        // 调度门（§2.1）：依赖全部完成才自动跑首代；未完成 → 卡进入"等上游"（无执行，解锁后自动启动）
+        const canAutoStart = depsMet({ deps }, proj.projects[pid]?.cards ?? {})
+        let sid: string | null = null
+        if (canAutoStart) {
+          sid = await startExecution(pid, cardId, null, {
+            brief, groupTag, criteria,
+            // 注意：Profile 是三轴语义（协作方式/执行设定/审批/沙箱），不是 dsh 引擎 preset——
+            // 不把 profile.id 透传给 _meta.agentPreset（引擎 preset 是独立的"工具集定制"，P0 不同步）
+            presetSnapshot: presetSnapshot ? JSON.stringify(presetSnapshot) : null,
+          })
+        }
+        send(201, { card_id: cardId, session_id: sid, preset: presetSnapshot, started: sid !== null })
         return
       }
       const cardMatch = path.match(/^\/api\/cards\/([^/]+)$/)
