@@ -23,6 +23,8 @@ export interface CardSnapshot {
   milestone: string | null
   /** 需求契约：验收标准（可判定断言，D1.5/D1.7）——实验任务集的验收命令 */
   criteria: string | null
+  /** 依赖契约（目标契约 taskgraph）：完成本卡前需先完成的卡 id（同项目内） */
+  deps: string[]
   created_at: number
 }
 
@@ -82,6 +84,7 @@ export class Storage {
         kind          TEXT NOT NULL DEFAULT 'task',
         milestone     TEXT,
         criteria_json TEXT NOT NULL DEFAULT '[]',  -- 需求契约：验收标准（'[]'=无，兼容旧库 NOT NULL）
+        deps_json     TEXT NOT NULL DEFAULT '[]',  -- 依赖契约：卡 id 数组（目标契约 taskgraph）
         created_at    INTEGER NOT NULL,
         updated_at    INTEGER NOT NULL
       );
@@ -203,6 +206,11 @@ export class Storage {
     if (!have.has('out_tokens')) this.db.exec(`ALTER TABLE metrics ADD COLUMN out_tokens INTEGER NOT NULL DEFAULT 0`)
     if (!have.has('reason_tokens')) this.db.exec(`ALTER TABLE metrics ADD COLUMN reason_tokens INTEGER NOT NULL DEFAULT 0`)
     if (!have.has('verified')) this.db.exec(`ALTER TABLE metrics ADD COLUMN verified INTEGER`)
+    // 迁移：老库 cards 补 deps_json 列（依赖契约）
+    const cardCols = this.db.prepare(`SELECT name FROM pragma_table_info('cards')`).all() as Array<{ name: string }>
+    if (!cardCols.some((c) => c.name === 'deps_json')) {
+      this.db.exec(`ALTER TABLE cards ADD COLUMN deps_json TEXT NOT NULL DEFAULT '[]'`)
+    }
   }
 
   // ---------- 项目 ----------
@@ -266,32 +274,33 @@ export class Storage {
     const t = now()
     this.db
       .prepare(
-        `INSERT INTO cards (id, project_id, title, description, kind, milestone, criteria_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO cards (id, project_id, title, description, kind, milestone, criteria_json, deps_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title=excluded.title, description=excluded.description, kind=excluded.kind,
-           milestone=excluded.milestone, criteria_json=excluded.criteria_json, updated_at=excluded.updated_at`,
+           milestone=excluded.milestone, criteria_json=excluded.criteria_json,
+           deps_json=excluded.deps_json, updated_at=excluded.updated_at`,
       )
-      .run(c.id, c.project_id, c.title, c.description, c.kind, c.milestone, c.criteria ?? '[]', c.created_at, t)
+      .run(c.id, c.project_id, c.title, c.description, c.kind, c.milestone, c.criteria ?? '[]', JSON.stringify(c.deps ?? []), c.created_at, t)
   }
 
   loadCards(projectId: string): CardSnapshot[] {
     return this.db
-      .prepare('SELECT id, project_id, title, description, kind, milestone, criteria_json, created_at FROM cards WHERE project_id = ? ORDER BY created_at DESC')
+      .prepare('SELECT id, project_id, title, description, kind, milestone, criteria_json, deps_json, created_at FROM cards WHERE project_id = ? ORDER BY created_at DESC')
       .all(projectId)
       .map((r) => rowToCard(r as Record<string, unknown>))
   }
 
   loadAllCards(): CardSnapshot[] {
     return this.db
-      .prepare('SELECT id, project_id, title, description, kind, milestone, criteria_json, created_at FROM cards')
+      .prepare('SELECT id, project_id, title, description, kind, milestone, criteria_json, deps_json, created_at FROM cards')
       .all()
       .map((r) => rowToCard(r as Record<string, unknown>))
   }
 
   getCard(id: string): CardSnapshot | undefined {
     const row = this.db
-      .prepare('SELECT id, project_id, title, description, kind, milestone, criteria_json, created_at FROM cards WHERE id = ?')
+      .prepare('SELECT id, project_id, title, description, kind, milestone, criteria_json, deps_json, created_at FROM cards WHERE id = ?')
       .get(id) as Record<string, unknown> | undefined
     return row ? rowToCard(row) : undefined
   }
@@ -584,8 +593,18 @@ function rowToCard(r: Record<string, unknown>): CardSnapshot {
     kind: (r.kind as string) ?? 'task',
     milestone: (r.milestone as string | null) ?? null,
     criteria: (r.criteria_json as string | null) && r.criteria_json !== '[]' ? (r.criteria_json as string) : null,
+    deps: parseIdArray(r.deps_json),
     created_at: r.created_at as number,
   }
+}
+
+/** 解析 JSON 数组（'[]' 或非法 → 空数组；卡依赖 id 列表） */
+export function parseIdArray(json: unknown): string[] {
+  if (typeof json !== 'string') return []
+  try {
+    const v = JSON.parse(json) as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch { return [] }
 }
 
 function rowToExecution(r: Record<string, unknown>): ExecutionSnapshot {

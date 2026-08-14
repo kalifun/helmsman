@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { execSync } from 'node:child_process'
 import { startEngine } from './engine.ts'
-import { Storage } from './storage.ts'
+import { Storage, parseIdArray } from './storage.ts'
 import {
   newProjection,
   ensureProject,
@@ -23,6 +23,7 @@ import {
   foldTask,
   detectPlanCompletion,
   extractPlanText,
+  validateDeps,
   type CardMeta,
   type CardState,
   type Project,
@@ -171,6 +172,7 @@ async function main(): Promise<void> {
           kind: card.kind,
           milestone: card.milestone,
           criteria: card.criteria,
+          deps: card.deps ?? [],
           created_at: card.created_at,
         },
         executionCreatedAt: ex.created_at,
@@ -192,6 +194,7 @@ async function main(): Promise<void> {
         kind: c.kind,
         milestone: c.milestone,
         criteria: null,
+        deps: c.deps ?? [],
         created_at: c.created_at,
       })
       for (const [sid, t] of Object.entries(c.executions)) {
@@ -201,7 +204,7 @@ async function main(): Promise<void> {
           card_id: cardId,
           status: t.status,
           preset_json: '{}',
-          deps_json: '[]',
+          deps_json: JSON.stringify(c.deps ?? []),
           forked_from: null,
           started_at: t.started_at ?? null,
           finished_at: t.finished_at ?? null,
@@ -211,6 +214,17 @@ async function main(): Promise<void> {
     }
   }
   console.log(`[recover] restored ${restored} sessions from logs`)
+
+  // 依赖契约回灌：storage 已有执行的 deps_json 快照 → 投影 TaskState.deps（日志 fold 不含 deps）
+  for (const card of storage.loadAllCards()) {
+    const pc = proj.projects[card.project_id]?.cards[card.id]
+    if (!pc) continue
+    if (card.deps?.length && !(pc.deps?.length)) pc.deps = card.deps
+    for (const ex of storage.loadExecutions(card.id)) {
+      const t = pc.executions[ex.id]
+      if (t && ex.deps_json && ex.deps_json !== '[]' && !t.deps?.length) t.deps = parseIdArray(ex.deps_json)
+    }
+  }
 
   // 既有项目补种子 Profile（老库无 profiles 表数据时）
   for (const pid of Object.keys(proj.projects)) storage.seedProfiles(pid)
@@ -265,6 +279,9 @@ async function main(): Promise<void> {
     if (!p || !c) throw new HttpError(404, `card '${cardId}' not found`)
     const sid = await acp.sessionNew(p.path, opts.presetId ?? undefined)
     registerSession(proj, sid, projectId, cardId)
+    // 依赖契约快照：继承卡 deps（目标契约 taskgraph；图 DAG 边 = 最新执行此字段）
+    const t0 = proj.projects[projectId]?.cards[cardId]?.executions[sid]
+    if (t0) t0.deps = c.deps ?? []
     // 预设快照进投影（§2.6：执行契约，随任务生命周期延续，前端可见）
     if (opts.presetSnapshot) {
       try {
@@ -279,7 +296,7 @@ async function main(): Promise<void> {
       card_id: cardId,
       status: 'Pending',
       preset_json: opts.presetSnapshot ?? '{}',
-      deps_json: '[]',
+      deps_json: JSON.stringify(c.deps ?? []),
       forked_from: forkedFrom,
       started_at: null,
       finished_at: null,
@@ -615,6 +632,13 @@ async function main(): Promise<void> {
         const cardId = genCardId()
         const created = nowMs()
         const criteria = typeof body.acceptance === 'string' && body.acceptance.trim() ? body.acceptance.trim() : null
+        // 依赖契约（目标契约 taskgraph）：deps = 同项目已存在卡的 id 数组
+        let deps: string[] = []
+        try {
+          deps = validateDeps(body.deps, Object.keys(proj.projects[pid]?.cards ?? {}), cardId)
+        } catch (e) {
+          throw new HttpError(400, e instanceof Error ? e.message : 'bad deps')
+        }
         const meta: CardMeta = {
           id: cardId,
           title,
@@ -622,6 +646,7 @@ async function main(): Promise<void> {
           kind,
           milestone: typeof body.milestone === 'string' ? body.milestone : null,
           criteria,
+          deps,
           created_at: created,
         }
         ensureCard(proj, pid, meta)
@@ -687,7 +712,7 @@ async function main(): Promise<void> {
         if (!proj.projects[pid]) throw new HttpError(404, `project '${pid}' not found; create it via POST /api/projects first`)
         const cardId = genCardId()
         const created = nowMs()
-        const meta: CardMeta = { id: cardId, title, description: '', kind: 'task', milestone: null, criteria: null, created_at: created }
+        const meta: CardMeta = { id: cardId, title, description: '', kind: 'task', milestone: null, criteria: null, deps: [], created_at: created }
         ensureCard(proj, pid, meta)
         storage.upsertCard({ ...meta, project_id: pid })
         const sid = await startExecution(pid, cardId, null)
@@ -916,6 +941,7 @@ async function main(): Promise<void> {
             kind: 'task',
             milestone: null,
             criteria,
+            deps: [],
             created_at: nowMs(),
           }
           ensureCard(proj, projectId, meta)

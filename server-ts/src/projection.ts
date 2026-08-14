@@ -40,6 +40,8 @@ export interface CardMeta {
   milestone: string | null
   /** 需求契约：验收标准（可判定断言；实验任务集的验收命令） */
   criteria: string | null
+  /** 依赖契约（目标契约 taskgraph）：完成本卡前需先完成的卡 id（同项目内） */
+  deps: string[]
   created_at: number
 }
 
@@ -63,6 +65,8 @@ export interface TaskState {
   waiting: { kind: 'plan' | 'permission' | 'acceptance' | 'cost'; reason: string; payload: Record<string, unknown> } | null
   /** 执行启动时的预设快照（§2.6：预设 = 执行契约，随任务生命周期延续） */
   preset: { id: string; name: string; mode: string; setting: string; approval: string; sandbox: string } | null
+  /** 依赖契约快照（继承自卡的 deps；图 DAG 边 = 最新执行此字段） */
+  deps?: string[]
   /** fold 内部状态：当前回合号（Activity.turn 来源，不参与业务语义） */
   current_turn: number
 }
@@ -73,6 +77,7 @@ export interface CardState {
   description: string
   kind: string
   milestone: string | null
+  deps: string[]
   executions: Record<string, TaskState>
   exec_order: string[]
   created_at: number
@@ -96,6 +101,23 @@ export function newTaskState(sid: string): TaskState {
   }
 }
 
+/** 依赖契约校验（目标契约 taskgraph）：数组 + 同项目存在 + 无自依赖；返回去重后的规范 id 列表。
+ *  非法输入抛错（调用方转 HttpError 400）；undefined → 空数组（无依赖）。 */
+export function validateDeps(deps: unknown, knownIds: Iterable<string>, selfId: string): string[] {
+  if (deps === undefined) return []
+  if (!Array.isArray(deps) || !deps.every((d): d is string => typeof d === 'string' && d.length > 0)) {
+    throw new Error('deps must be an array of card ids')
+  }
+  const known = new Set(knownIds)
+  const out: string[] = []
+  for (const d of new Set(deps)) {
+    if (d === selfId) throw new Error('card cannot depend on itself')
+    if (!known.has(d)) throw new Error(`dep '${d}' not in project`)
+    out.push(d)
+  }
+  return out
+}
+
 export function newCardState(meta: CardMeta): CardState {
   return {
     id: meta.id,
@@ -103,6 +125,7 @@ export function newCardState(meta: CardMeta): CardState {
     description: meta.description,
     kind: meta.kind,
     milestone: meta.milestone,
+    deps: meta.deps ?? [],
     executions: {},
     exec_order: [],
     created_at: meta.created_at,

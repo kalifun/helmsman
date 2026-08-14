@@ -102,6 +102,7 @@ export function recoverStore(
         kind: 'task',
         milestone: null,
         criteria: null,
+        deps: [],
         created_at: r.createdAt,
       })
       registerSession(proj, r.sid, r.projectId, r.cardId)
