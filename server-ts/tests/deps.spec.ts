@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Storage } from '../src/storage.ts'
-import { newProjection, ensureProject, ensureCard, registerSession, finishSession, depsMet, unmetDeps, validateDeps, newCardState, type CardMeta } from '../src/projection.ts'
+import { newProjection, ensureProject, ensureCard, registerSession, finishSession, depsMet, unmetDeps, hasRealExecution, validateDeps, newCardState, type CardMeta } from '../src/projection.ts'
 
 let dir: string
 let s: Storage
@@ -143,5 +143,33 @@ describe('调度门（§2.1）：depsMet / unmetDeps', () => {
     // card-c 无执行 → 仍等上游
     expect(depsMet(cards['card-d'], cards)).toBe(false)
     expect(unmetDeps(cards['card-d'], cards)).toEqual(['card-c'])
+  })
+})
+
+describe('D1.7 校准会话不算正常执行（hasRealExecution）', () => {
+  it('无执行 → false（可补启动）', () => {
+    const p = newProjection()
+    ensureProject(p, 'p1', '项目', '/tmp/x')
+    ensureCard(p, 'p1', meta('card-a'))
+    expect(hasRealExecution(p.projects['p1'].cards['card-a'])).toBe(false)
+  })
+
+  it('只有校准会话 → false（批准后仍需补启动）', () => {
+    const p = newProjection()
+    ensureProject(p, 'p1', '项目', '/tmp/x')
+    ensureCard(p, 'p1', meta('card-a'))
+    registerSession(p, 'cal-s1', 'p1', 'card-a')
+    p.projects['p1'].cards['card-a'].executions['cal-s1'].calib = true
+    expect(hasRealExecution(p.projects['p1'].cards['card-a'])).toBe(false)
+  })
+
+  it('有正常执行 → true', () => {
+    const p = newProjection()
+    ensureProject(p, 'p1', '项目', '/tmp/x')
+    ensureCard(p, 'p1', meta('card-a'))
+    registerSession(p, 'cal-s1', 'p1', 'card-a')
+    p.projects['p1'].cards['card-a'].executions['cal-s1'].calib = true
+    registerSession(p, 's2', 'p1', 'card-a')
+    expect(hasRealExecution(p.projects['p1'].cards['card-a'])).toBe(true)
   })
 })

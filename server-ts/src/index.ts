@@ -23,9 +23,13 @@ import {
   foldTask,
   detectPlanCompletion,
   extractPlanText,
+  detectMarker,
+  extractMarkerText,
+  CALIBRATE_DONE_MARKER,
   validateDeps,
   depsMet,
   unmetDeps,
+  hasRealExecution,
   type CardMeta,
   type CardState,
   type Project,
@@ -222,6 +226,7 @@ async function main(): Promise<void> {
     const pc = proj.projects[card.project_id]?.cards[card.id]
     if (!pc) continue
     if (card.deps?.length && !(pc.deps?.length)) pc.deps = card.deps
+    if (card.criteria && !pc.criteria) pc.criteria = card.criteria
     for (const ex of storage.loadExecutions(card.id)) {
       const t = pc.executions[ex.id]
       if (t && ex.deps_json && ex.deps_json !== '[]' && !t.deps?.length) t.deps = parseIdArray(ex.deps_json)
@@ -498,17 +503,82 @@ async function main(): Promise<void> {
     return sid
   }
 
-  /** 调度门自动推进：扫描项目内"已解锁未执行"的卡（无执行代次且 deps 全 Done），自动启动。并行分支。 */
+  /** 调度门自动推进：扫描项目内"已解锁未执行"的卡（无正常执行代次且 deps 全 Done），自动启动。并行分支。 */
   function kickStartDownstream(projectId: string): void {
     const p = proj.projects[projectId]
     if (!p) return
     for (const card of Object.values(p.cards)) {
-      if (card.exec_order.length > 0) continue
+      if (hasRealExecution(card)) continue // 校准会话不算正常执行（D1.7：批准后仍需启动）
       if (!depsMet(card, p.cards)) continue
       void startExecution(projectId, card.id, null).catch((e) => {
         console.warn(`[sched] auto-start ${card.id} failed: ${e instanceof Error ? e.message : e}`)
       })
     }
+  }
+
+  /** D1.7 需求校准：开校准会话 → agent 探索需求并提案验收标准（可判定断言）→ Waiting{calibrate} 等批复。
+   *  批准 → 写回 criteria + 自动启动正常执行；拒绝 → 评论送达（可再校准）。 */
+  async function startCalibration(projectId: string, cardId: string): Promise<string> {
+    const p = proj.projects[projectId]
+    const c = p?.cards[cardId]
+    if (!p || !c) throw new HttpError(404, `card '${cardId}' not found`)
+    const sid = await acp.sessionNew(p.path, undefined)
+    registerSession(proj, sid, projectId, cardId)
+    const t0 = proj.projects[projectId]?.cards[cardId]?.executions[sid]
+    if (t0) { t0.deps = c.deps ?? []; t0.calib = true } // 校准会话标记（不算正常执行代次）
+    const created = nowMs()
+    storage.upsertExecution({
+      id: sid,
+      card_id: cardId,
+      status: 'Pending',
+      preset_json: '{}',
+      deps_json: JSON.stringify(c.deps ?? []),
+      forked_from: null,
+      started_at: null,
+      finished_at: null,
+      created_at: created,
+    })
+    const prompt = `【需求校准】请先探索需求（读代码/文档，必要时提问澄清），然后产出验收标准提案：
+1. 验收标准必须是**可判定断言**（命令式验证如 node -e 断言，或精确可检查的描述），不是空话；
+2. 覆盖关键行为、边界、交付物；
+3. 最后用一行 "${CALIBRATE_DONE_MARKER}" 结尾，之后停下等待确认，不要开始执行。`
+    void acp.sessionPrompt(sid, prompt).then(async (stopReason) => {
+      const at = nowMs()
+      finishSession(proj, sid, stopReason, at)
+      const t = proj.projects[projectId]?.cards[cardId]?.executions[sid]
+      if (!t) return
+      if (t.status === 'Done' && t.waiting === null && detectMarker(t, CALIBRATE_DONE_MARKER)) {
+        const proposal = extractMarkerText(t, CALIBRATE_DONE_MARKER)
+        t.waiting = { kind: 'calibrate', reason: '需求校准：agent 已提案验收标准，请确认（批准 → 写回卡的验收标准并开始执行）', payload: { criteria_proposal: proposal } }
+        t.status = 'Running' // 等待批复中，非终态
+        storage.upsertExecution({
+          id: sid, card_id: cardId, status: 'Running',
+          preset_json: '{}', deps_json: JSON.stringify(c.deps ?? []),
+          forked_from: null, started_at: t.started_at ?? null, finished_at: null, created_at: created,
+        })
+        storage.insertApproval({
+          id: 0,
+          project_id: projectId,
+          execution_id: sid,
+          kind: 'calibrate',
+          payload: { criteria_proposal: proposal },
+          reason: '需求校准：验收标准提案',
+          outcome: null,
+          comment: null,
+          created_at: at,
+          decided_at: null,
+          suspended_at: null,
+        })
+        return
+      }
+      // 未产出提案（agent 未按格式）→ 落终态，用户可再点校准
+      storage.upsertExecution({
+        id: sid, card_id: cardId, status: t.status,
+        preset_json: '{}', deps_json: JSON.stringify(c.deps ?? []),
+        forked_from: null, started_at: t.started_at ?? null, finished_at: t.finished_at ?? null, created_at: created,
+      })
+    })
+    return sid
   }
 
   class HttpError extends Error {
@@ -693,7 +763,11 @@ async function main(): Promise<void> {
         // 调度门（§2.1）：依赖全部完成才自动跑首代；未完成 → 卡进入"等上游"（无执行，解锁后自动启动）
         const canAutoStart = depsMet({ deps }, proj.projects[pid]?.cards ?? {})
         let sid: string | null = null
-        if (canAutoStart) {
+        // D1.6 时机①建卡时校准：先校准需求（提案验收标准 → 人确认 → 写回）再执行
+        const calibrateFirst = body.calibrate === true
+        if (calibrateFirst) {
+          sid = await startCalibration(pid, cardId)
+        } else if (canAutoStart) {
           sid = await startExecution(pid, cardId, null, {
             brief, groupTag, criteria,
             // 注意：Profile 是三轴语义（协作方式/执行设定/审批/沙箱），不是 dsh 引擎 preset——
@@ -730,6 +804,17 @@ async function main(): Promise<void> {
         if (from && !c.executions[from]) throw new HttpError(400, `from_execution_id '${from}' not in card '${cardId}'`)
         const sid = await startExecution(pid, cardId, from)
         send(201, { card_id: cardId, session_id: sid, forked_from: from })
+        return
+      }
+      // D1.7 手动需求校准（D1.6 时机②③：先跑/明确需求后可随时发起）
+      const calibrateMatch = path.match(/^\/api\/cards\/([^/]+)\/calibrate$/)
+      if (calibrateMatch && method === 'POST') {
+        const cardId = decodeURIComponent(calibrateMatch[1])
+        const entry = Object.entries(proj.projects).find(([, p]) => p.cards[cardId])
+        if (!entry) throw new HttpError(404, `card '${cardId}' not found`)
+        const [pid] = entry
+        const sid = await startCalibration(pid, cardId)
+        send(201, { card_id: cardId, session_id: sid, kind: 'calibrate' })
         return
       }
 
@@ -888,6 +973,51 @@ async function main(): Promise<void> {
         const sid = appr.execution_id
         const t = proj.projects[appr.project_id]?.cards[proj.sessionCard[sid]]?.executions[sid]
         if (t) t.waiting = null
+        // D1.7 需求校准决策：批准 → 提案写回卡的验收标准（criteria）并自动启动正常执行；拒绝 → 仅评论送达
+        if (appr.kind === 'calibrate') {
+          const cardId = proj.sessionCard[sid]
+          const card = proj.projects[appr.project_id]?.cards[cardId]
+          if (outcome === 'approved' && card) {
+            const proposal = typeof appr.payload?.criteria_proposal === 'string' ? appr.payload.criteria_proposal : null
+            if (proposal) {
+              card.criteria = proposal
+              storage.upsertCard({
+                id: card.id,
+                project_id: appr.project_id,
+                title: card.title,
+                description: card.description,
+                kind: card.kind,
+                milestone: card.milestone,
+                criteria: proposal,
+                deps: card.deps ?? [],
+                created_at: card.created_at,
+              })
+              // G1 修复：自动启动带 criteria（进简报 + Done 时触发外部验收门）；依赖未完成 → 409 由 kickStartDownstream 兜底
+              if (depsMet(card, proj.projects[appr.project_id]?.cards ?? {})) {
+                void startExecution(appr.project_id, cardId, null, { criteria: proposal }).catch((e) => {
+                  console.warn(`[calibrate] auto-start ${cardId} failed: ${e instanceof Error ? e.message : e}`)
+                })
+              }
+            }
+          }
+          // G3 修复：校准会话批复后结束（批准/拒绝都是终态，不留僵尸 Running）
+          finishSession(proj, sid, 'end_turn', nowMs())
+          const ct = proj.projects[appr.project_id]?.cards[proj.sessionCard[sid]]?.executions[sid]
+          if (ct) {
+            const oldEx = storage.getExecutionBySession(sid)
+            storage.upsertExecution({
+              id: sid,
+              card_id: proj.sessionCard[sid],
+              status: ct.status,
+              preset_json: '{}',
+              deps_json: '[]',
+              forked_from: null,
+              started_at: ct.started_at ?? null,
+              finished_at: ct.finished_at ?? null,
+              created_at: oldEx?.created_at ?? nowMs(),
+            })
+          }
+        }
         const steer = outcome === 'approved'
           ? `[批复] 已批准（${appr.kind}）：${comment || '继续执行'}`
           : `[批复] 已拒绝（${appr.kind}）：${comment || '请调整方案'}`

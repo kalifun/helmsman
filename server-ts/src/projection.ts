@@ -61,12 +61,14 @@ export interface TaskState {
   recovered: boolean
   /** 会话级 token 用量（assistant/message.usage 累积，§6 执行经济学） */
   usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; reasoningTokens: number }
-  /** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复（plan/permission/acceptance/cost） */
-  waiting: { kind: 'plan' | 'permission' | 'acceptance' | 'cost'; reason: string; payload: Record<string, unknown> } | null
+  /** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复（plan/permission/acceptance/cost/calibrate） */
+  waiting: { kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate'; reason: string; payload: Record<string, unknown> } | null
   /** 执行启动时的预设快照（§2.6：预设 = 执行契约，随任务生命周期延续） */
   preset: { id: string; name: string; mode: string; setting: string; approval: string; sandbox: string } | null
   /** 依赖契约快照（继承自卡的 deps；图 DAG 边 = 最新执行此字段） */
   deps?: string[]
+  /** 校准会话标记（D1.7）：需求校准执行不算正常执行代次（调度门补启动时跳过） */
+  calib?: boolean
   /** fold 内部状态：当前回合号（Activity.turn 来源，不参与业务语义） */
   current_turn: number
 }
@@ -78,6 +80,8 @@ export interface CardState {
   kind: string
   milestone: string | null
   deps: string[]
+  /** 需求契约：验收标准（可判定断言；D1.7 校准批准后写回） */
+  criteria: string | null
   executions: Record<string, TaskState>
   exec_order: string[]
   created_at: number
@@ -159,6 +163,11 @@ export function unmetDeps(card: Pick<CardState, 'deps'>, cardsById: Record<strin
   })
 }
 
+/** 是否存在正常执行代次（非校准会话；D1.7 校准不算"真正执行过"） */
+export function hasRealExecution(card: CardState): boolean {
+  return card.exec_order.some((sid) => !card.executions[sid]?.calib)
+}
+
 export function newCardState(meta: CardMeta): CardState {
   return {
     id: meta.id,
@@ -167,6 +176,7 @@ export function newCardState(meta: CardMeta): CardState {
     kind: meta.kind,
     milestone: meta.milestone,
     deps: meta.deps ?? [],
+    criteria: meta.criteria ?? null,
     executions: {},
     exec_order: [],
     created_at: meta.created_at,
@@ -386,28 +396,52 @@ export type { TailEvent }
 
 /** 计划完成的检测标记（阶段 2 · plan 协作方式）。 */
 export const PLAN_DONE_MARKER = '【计划完毕】'
+/** 需求校准的完成标记（D1.7：agent 产出验收标准提案）。 */
+export const CALIBRATE_DONE_MARKER = '【验收标准完毕】'
 
 /**
- * 检测 agent 是否已产出计划（活动流文本含【计划完毕】标记）。
- * 纯函数：从 activities 提取文本，供 plan 模式判断是否挂 Waiting{plan}。
+ * 检测 agent 是否已产出标记内容（活动流文本含 marker）。
+ * 纯函数：从 activities 提取文本（Text + Reasoning 都计入检测，提取只取 Text）。
  */
-export function detectPlanCompletion(t: TaskState): boolean {
+export function detectMarker(t: TaskState, marker: string): boolean {
   const allText = t.activities
     .map((a) => ('Text' in a ? a.Text?.text : 'Reasoning' in a ? a.Reasoning?.text : ''))
     .join('')
-  return allText.includes(PLAN_DONE_MARKER)
+  return allText.includes(marker)
+}
+
+/**
+ * 检测 agent 是否已产出计划（活动流文本含【计划完毕】标记）。
+ */
+export function detectPlanCompletion(t: TaskState): boolean {
+  return detectMarker(t, PLAN_DONE_MARKER)
+}
+
+/**
+ * 提取 agent 产出的标记前文本（【marker】之前最近的连续 Text 产出段）。
+ * G4 修复：只取"最后一段连续 Text 产出"（探索/工具调用等非 Text 活动中断），
+ * 避免会话内全部 Text 拼接导致中间文本污染提案（校准/计划产出物纯度）。
+ * 纯函数：供 plan 模式挂 Waiting{plan}、校准挂 Waiting{calibrate} 时把产物放进批复。
+ */
+export function extractMarkerText(t: TaskState, marker: string): string {
+  // 从最后向前收集连续 Text 活动，遇非 Text 活动（Reasoning/Tool/…）即中断产出段
+  const texts: string[] = []
+  for (let i = t.activities.length - 1; i >= 0; i--) {
+    const a = t.activities[i]
+    if (!('Text' in a)) break
+    const txt = a.Text?.text ?? ''
+    if (!txt) break
+    texts.unshift(txt)
+  }
+  const joined = texts.join('\n')
+  const idx = joined.indexOf(marker)
+  if (idx >= 0) return joined.slice(0, idx).trim()
+  return joined.slice(-800)
 }
 
 /**
  * 提取 agent 产出的计划文本（【计划完毕】标记之前的 Text 活动内容）。
- * 纯函数：供 plan 模式挂 Waiting{plan} 时把计划本体放进批复。
  */
 export function extractPlanText(t: TaskState): string {
-  // 只取 Text 活动（Reasoning 是思考不是计划输出）；取【计划完毕】之前的全部计划文本
-  const texts = t.activities
-    .map((a) => ('Text' in a ? a.Text?.text : ''))
-    .join('')
-  const idx = texts.indexOf(PLAN_DONE_MARKER)
-  if (idx < 0) return texts.slice(-800)
-  return texts.slice(0, idx).trim()
+  return extractMarkerText(t, PLAN_DONE_MARKER)
 }

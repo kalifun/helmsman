@@ -734,7 +734,7 @@ function rowToMetric(r: Record<string, unknown>): MetricRow {
 
 // ---------- 批复队列类型 ----------
 
-export type ApprovalKind = 'plan' | 'permission' | 'acceptance' | 'cost'
+export type ApprovalKind = 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate'
 export type ApprovalOutcome = 'approved' | 'rejected' | 'suspended' | null
 
 export interface ApprovalRow {
