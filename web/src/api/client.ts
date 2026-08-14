@@ -59,6 +59,7 @@ export interface CardDetail {
   description: string;
   kind: string;
   milestone?: string | null;
+  deps?: string[];          // 依赖契约：完成本卡前需先完成的卡 id
   created_at?: number;
   execution_count: number;
   project_id?: string;
@@ -76,6 +77,7 @@ export interface CreateCardInput {
   kind?: string; // 'requirement' | 'bug' | 'task'
   milestone?: string;
   preset?: string; // agent preset id（每任务工具/人格组装）
+  deps?: string[]; // 依赖契约：同项目已存在卡的 id（完成本卡前需先完成）
 }
 export async function createCard(pid: string, input: CreateCardInput): Promise<{ card_id: string; session_id: string }> {
   const res = await fetch(BASE + '/projects/' + encodeURIComponent(pid) + '/cards', {

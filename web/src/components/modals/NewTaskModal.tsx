@@ -1,12 +1,14 @@
 // 职责：建卡模态（M2.3，O1=B）—— 卡 = 资产：目标（一句话）+ 类型（需求/缺陷/任务）+
-// 需求描述（卡 description）+ 里程碑（属性，P1 筛选）+ 备注 + 预设 Profile（三轴组合）。
-// POST /api/projects/:pid/cards {title, description, kind, milestone, preset_id}：建卡即自动跑首代执行。
+// 需求描述（卡 description）+ 里程碑（属性，P1 筛选）+ 备注 + 预设 Profile（三轴组合）+
+// 依赖（目标契约 taskgraph：完成本卡前需先完成的卡）。
+// POST /api/projects/:pid/cards {title, description, kind, milestone, preset_id, deps}：建卡即自动跑首代执行。
 import { useEffect, useState } from 'react';
 import { Modal } from '../Modal';
 import { Button } from '../Button';
 import { useUi } from '../../store/ui';
-import { useProjection } from '../../store/projection';
+import { useProjection, cardStatus } from '../../store/projection';
 import { listProfiles, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL, type Profile } from '../../api/client';
+import { StatusPill } from '../StatusPill';
 
 const KINDS: { value: string; label: string }[] = [
   { value: 'requirement', label: '需求' },
@@ -28,7 +30,10 @@ export function NewTaskModal() {
   const [description, setDescription] = useState('');
   const [milestone, setMilestone] = useState('');
   const [note, setNote] = useState('');
+  const [depIds, setDepIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const cards = useProjection((s) => (pid ? s.cards[pid] || {} : {}));
+  const depOptions = Object.values(cards).sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0));
 
   // 打开时加载项目 Profile（默认项预填 —— 用户可见，§2.6"建卡预填"）
   useEffect(() => {
@@ -53,6 +58,7 @@ export function NewTaskModal() {
       kind,
       milestone: milestone.trim() || undefined,
       preset: presetId || undefined,
+      deps: depIds.length ? depIds : undefined,
     });
     setBusy(false);
     if (cardId) {
@@ -63,6 +69,7 @@ export function NewTaskModal() {
       setDescription('');
       setMilestone('');
       setNote('');
+      setDepIds([]);
     } else {
       toast('创建失败，见错误横幅');
     }
@@ -111,6 +118,30 @@ export function NewTaskModal() {
           ))}
         </select>
         <div className="ph-hint2" style={{ marginTop: 4 }}>预设 = 协作方式 × 执行设定 × 审批姿态 · 沙箱（悬停选项看明细；执行启动时快照，不改）。</div>
+      </div>
+      <div className="field">
+        <label>依赖（可选 · 完成本卡前需先完成；图上画边）</label>
+        {depOptions.length === 0 ? (
+          <div className="ph-hint2" style={{ padding: '6px 0' }}>项目还没有卡 —— 先建无依赖的卡，图会按依赖分层。</div>
+        ) : (
+          <div style={{ maxHeight: 130, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 4 }}>
+            {depOptions.map((c) => {
+              const st = cardStatus(c);
+              const checked = depIds.includes(c.id);
+              return (
+                <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', fontSize: 12.5, cursor: 'pointer', borderRadius: 4 }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => setDepIds((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((d) => d !== c.id)))}
+                  />
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                  <StatusPill status={st as never} />
+                </label>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div className="field">
         <label>需求描述</label>

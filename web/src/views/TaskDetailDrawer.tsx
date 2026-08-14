@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useUi, writeHash, openSession, type DrawerTab } from '../store/ui';
 import { listApprovals, decideApproval, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL } from '../api/client';
 import {
-  useProjection, effectiveStatus, depsUnmet, fmtTime,
+  useProjection, effectiveStatus, depsUnmet, cardStatus, fmtTime,
   latestExecution, executionList,
   type TaskState,
 } from '../store/projection';
@@ -45,6 +45,13 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
   const cardExecs = card ? Object.values(card.executions) : [];
   const byId: Record<string, TaskState> = {};
   cardExecs.forEach((e) => { byId[e.id] = e; });
+  // 依赖契约（目标契约 taskgraph）：deps 是卡 id → 卡最新执行；反向扫描被依赖
+  const allCards = useProjection((s) => s.cards[pid] || {});
+  const cardsById: Record<string, TaskState> = {};
+  Object.values(allCards).forEach((c) => { const le = latestExecution(c); if (le) cardsById[c.id] = le; });
+  const revDeps = Object.values(allCards)
+    .filter((c) => c.deps?.includes(cardId))
+    .map((c) => ({ id: c.id, title: c.title, status: cardStatus(c) }));
 
   const setTab = (t: DrawerTab) => {
     useUi.getState().setRoute({ tab: t });
@@ -72,9 +79,14 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
   if (!card) return <aside id="drawer" />;
   const st = task ? effectiveStatus(task) : 'Pending';
   const locked = st === 'Running' || st === 'Waiting';
-  const unmet = task ? depsUnmet(task, byId) : [];
+  const unmet = task ? depsUnmet(task, cardsById) : [];
   const comments = task?.comments || [];
   const online = conn === 'online';
+
+  const jump = (cid: string) => {
+    useUi.getState().setRoute({ openId: cid, tab: 'comments' });
+    writeHash(pid, useUi.getState().view, cid, 'comments');
+  };
 
   const fork = async () => {
     if (!online) { toast('断连期间禁用控制操作'); return; }
@@ -212,6 +224,42 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
           <Button mini variant="ghost" onClick={fork} disabled={!online} title="从当前执行派生新执行代次（保留原事件流）">⑂ fork</Button>
         </div>
       </div>
+
+      {/* 依赖契约（目标契约 taskgraph）：依赖/被依赖，点 chip 跳到对应卡 */}
+      {((task?.deps?.length ?? 0) > 0 || revDeps.length > 0) ? (
+        <div className="drawer-deps">
+          {(task?.deps?.length ?? 0) > 0 ? (
+            <div className="dd-group">
+              <span className="dd-label">依赖 · 先完成</span>
+              <div className="dd-chips">
+                {task!.deps!.map((d) => {
+                  const dc = allCards[d];
+                  const dle = dc ? latestExecution(dc) : null;
+                  return (
+                    <button key={d} className="dd-chip" onClick={() => jump(d)} title={dc?.title || d}>
+                      <StatusPill status={(dle ? effectiveStatus(dle) : 'Pending') as TaskState['status']} />
+                      <span className="dd-title">{dc?.title || d.slice(0, 14)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {revDeps.length > 0 ? (
+            <div className="dd-group">
+              <span className="dd-label">被依赖 · 等本卡</span>
+              <div className="dd-chips">
+                {revDeps.map((r) => (
+                  <button key={r.id} className="dd-chip" onClick={() => jump(r.id)} title={r.title}>
+                    <StatusPill status={r.status as TaskState['status']} />
+                    <span className="dd-title">{r.title || r.id.slice(0, 14)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Waiting 批复条（§5 会话钻入）：任务停在等待批复时显示，决策走批复队列 */}
       {task?.waiting ? (

@@ -66,6 +66,8 @@ export interface TaskState {
   waiting?: { kind: 'plan' | 'permission' | 'acceptance' | 'cost'; reason: string; payload: Record<string, unknown> } | null;
   /** 执行启动时的预设快照（§2.6：执行契约，随任务生命周期延续） */
   preset?: { id: string; name: string; mode: string; setting: string; approval: string; sandbox: string } | null;
+  /** 依赖契约快照（继承自卡的 deps；图 DAG 边 = 最新执行此字段） */
+  deps?: string[];
 }
 
 /** 资产卡（O1=B）：卡 = 需求/缺陷/任务 + 里程碑，挂 executions（1 卡 N 执行） */
@@ -75,6 +77,7 @@ export interface CardState {
   description?: string;
   kind?: string;              // 'requirement' | 'bug' | 'task'
   milestone?: string | null;
+  deps?: string[];            // 依赖契约：完成本卡前需先完成的卡 id
   executions: Record<string, TaskState>;  // sid → 执行（键 = 会话 id）
   exec_order?: string[];      // 执行代次顺序（创建序；末位 = 最新）
   created_at?: number;
@@ -154,10 +157,9 @@ export function executionList(card: CardState | undefined | null): TaskState[] {
   return order.map((sid) => card.executions[sid]).filter(Boolean);
 }
 
-/** 依赖未完成（目标契约：TaskState.deps 未开，形状来自 engine-spec §2/architecture taskgraph）。
- *  每次渲染现算：返回未完成依赖的标题列表。 */
+/** 依赖未完成（目标契约 taskgraph）：每次渲染现算，返回未完成依赖的标题列表。 */
 export function depsUnmet(t: TaskState, tasksById: Record<string, TaskState>): string[] {
-  const deps = (t as TaskState & { deps?: string[] }).deps;
+  const deps = t.deps;
   if (!deps || !deps.length) return [];
   return deps
     .map((d) => tasksById[d])

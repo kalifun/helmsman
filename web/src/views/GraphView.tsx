@@ -1,5 +1,6 @@
-// 职责：依赖图（DAG 预览）—— 按依赖深度分层；deps = 目标契约（TaskState.deps 未开），当前全部单层。
-// M2.3（O1=B）：节点 = 卡（状态 = 最新执行）；点击 → 详情抽屉（全部执行代次）。
+// 职责：依赖图（DAG 预览）—— 按依赖深度分层；deps = 目标契约（建卡时指定，投影自最新执行）。
+// 节点 = 卡（状态 = 最新执行）；边 = deps 贝塞尔曲线，虚线黄 = 依赖未完成（阻塞）。
+// 点击 → 详情抽屉（全部执行代次）。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUi, writeHash } from '../store/ui';
 import { useProjection, cardStatus, latestExecution, activityText, type TaskState } from '../store/projection';
@@ -20,7 +21,7 @@ export function GraphView({ pid }: { pid: string }) {
     if (seen.has(cardId)) return 0;
     seen.add(cardId);
     const c = byId[cardId];
-    const deps = latestExecution(c) ? (latestExecution(c) as TaskState & { deps?: string[] }).deps : undefined;
+    const deps = latestExecution(c)?.deps;
     if (!deps?.length) return 0;
     return 1 + Math.max(...deps.map((d) => (byId[d] ? depth(d, seen) : 0)));
   };
@@ -79,7 +80,7 @@ export function GraphView({ pid }: { pid: string }) {
         <div id="g-inner" style={{ transform: `translate(${tx}px, ${ty}px) scale(${scale})` }}>
           <svg className="g-edge-svg" width={width} height={height}>
             {all.flatMap((c) => {
-              const deps = latestExecution(c) ? (latestExecution(c) as TaskState & { deps?: string[] }).deps || [] : [];
+              const deps = latestExecution(c)?.deps || [];
               return deps.map((d) => {
                 const p1 = pos[d], p2 = pos[c.id];
                 if (!p1 || !p2) return null;
@@ -117,7 +118,7 @@ export function GraphView({ pid }: { pid: string }) {
         </div>
       </div>
       <div style={{ position: 'absolute', bottom: 44, left: 20, fontSize: 11, color: 'var(--text3)' }}>
-        依赖 DAG = 目标契约（TaskState.deps 未开 · 当前无依赖边）{all.length ? '' : ''}
+        依赖 DAG = 目标契约（建卡时指定 deps · 最新执行快照）{all.length ? '' : ''}
       </div>
     </div>
   );

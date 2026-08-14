@@ -321,6 +321,24 @@ svg.ic.sm { width: 13px; height: 13px; }
   border: 1px solid color-mix(in srgb, var(--yellow) 40%, transparent);
   border-radius: 999px; vertical-align: 1px;
 }
+/* 依赖契约（目标契约 taskgraph）：抽屉依赖/被依赖行 */
+.drawer-deps {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 16px; border-bottom: 1px solid var(--line);
+  background: var(--surface2); font-size: 11px;
+}
+.dd-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dd-label { color: var(--text3); font-size: 10.5px; font-weight: 600; letter-spacing: .06em; flex-shrink: 0; }
+.dd-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.dd-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text2);
+  border-radius: var(--r-sm); padding: 2px 8px; cursor: pointer; font-family: var(--font);
+  font-size: 11.5px; max-width: 240px;
+}
+.dd-chip:hover { border-color: var(--blue); color: var(--text); }
+.dd-chip .dd-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* 批复条：对齐 exec-bar（间距/字号/分隔线），黄底提示 */
 .approval-bar {
   display: flex; align-items: center; gap: var(--sp-3); justify-content: space-between;
