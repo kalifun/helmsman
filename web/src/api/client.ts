@@ -349,3 +349,62 @@ export interface MetricRow {
 export function getMetrics(pid: string): Promise<MetricRow[]> {
   return req<MetricRow[]>('/metrics?project=' + encodeURIComponent(pid));
 }
+
+// ---------- 简单会话（A 组：两级制松入口） ----------
+
+export interface ChatSummary {
+  session_id: string;
+  status: string;
+  turns: number;
+  steps: number;
+  last_text: string | null;
+  started_at: number | null;
+}
+
+/** POST /api/projects/:pid/chats —— 创建独立会话（不挂卡） */
+export async function createChat(pid: string): Promise<{ session_id: string }> {
+  const res = await fetch(BASE + '/projects/' + encodeURIComponent(pid) + '/chats', { method: 'POST' });
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  return (await res.json()) as { session_id: string };
+}
+
+export function listChats(pid: string): Promise<ChatSummary[]> {
+  return req<ChatSummary[]>('/projects/' + encodeURIComponent(pid) + '/chats');
+}
+
+export function getChat(sid: string): Promise<TaskState> {
+  return req<TaskState>('/chats/' + encodeURIComponent(sid));
+}
+
+/** POST /api/chats/:sid —— 发消息（阻塞到 agent end_turn） */
+export async function sendChat(sid: string, text: string): Promise<{ stop_reason: string }> {
+  const res = await fetch(BASE + '/chats/' + encodeURIComponent(sid), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  return (await res.json()) as { stop_reason: string };
+}
+
+/** POST /api/chats/:sid/promote —— 提升为任务（会话上下文进简报 → 建卡自动跑） */
+export async function promoteChat(sid: string, input: { title?: string; description?: string }): Promise<{ card_id: string; session_id: string }> {
+  const res = await fetch(BASE + '/chats/' + encodeURIComponent(sid) + '/promote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  return (await res.json()) as { card_id: string; session_id: string };
+}
+
+/** POST /api/chats/:sid/kb —— 存入知识库（会话结论 → KB 笔记） */
+export async function saveChatToKb(sid: string, title?: string): Promise<{ note_id: string }> {
+  const res = await fetch(BASE + '/chats/' + encodeURIComponent(sid) + '/kb', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(title ? { title } : {}),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  return (await res.json()) as { note_id: string };
+}

@@ -237,6 +237,10 @@ export type ConnState = 'online' | 'reconnect' | 'offline';
 interface ProjectionState {
   projects: Record<string, Project>;
   cards: Record<string, Record<string, CardState>>;  // pid → cardId → CardState（1 卡 N 执行）
+  /** 简单会话（A 组）：pid → sid → TaskState（独立会话，不进看板） */
+  chats: Record<string, Record<string, TaskState>>;
+  /** 简单会话摘要列表（列表视图用）：pid → ChatSummary[] */
+  chatList: Record<string, api.ChatSummary[]>;
   usage: Record<string, Usage>;                       // sid → 会话级 usage（WS 累积）
   /** sid → assistant/chunk 流式文本尾巴（activeSession 边界内累积；重拉后 activities 完整，流式仅 Running 显示） */
   streams: Record<string, string>;
@@ -250,6 +254,13 @@ interface ProjectionState {
   loadProject: (pid: string) => Promise<void>;
   loadCard: (cardId: string) => Promise<void>;
   loadTask: (sid: string) => Promise<void>;
+  /** 简单会话（A 组） */
+  loadChats: (pid: string) => Promise<void>;
+  loadChat: (sid: string, pid?: string) => Promise<void>;
+  createChat: (pid: string) => Promise<string | null>;
+  sendChat: (sid: string, text: string) => Promise<boolean>;
+  promoteChat: (sid: string, input: { title?: string; description?: string }) => Promise<string | null>;
+  saveChatToKb: (sid: string, title?: string) => Promise<boolean>;
   createCard: (pid: string, input: api.CreateCardInput) => Promise<string | null>;
   /** fork：卡上派生新执行代次（from_execution_id 可选）；返回新执行（会话）id */
   forkExecution: (cardId: string, fromExecutionId?: string) => Promise<string | null>;
@@ -269,6 +280,8 @@ interface ProjectionState {
 export const useProjection = create<ProjectionState>((set, get) => ({
   projects: {},
   cards: {},
+  chats: {},
+  chatList: {},
   usage: {},
   streams: {},
   loading: true,
@@ -299,6 +312,15 @@ export const useProjection = create<ProjectionState>((set, get) => ({
         const projects = { ...s.projects, [pid]: { id: p.id, name: p.name, path: p.path, card_count: Object.keys(p.cards).length } };
         return { cards, projects, error: null };
       });
+      // A 组：顺带加载简单会话（完整 TaskState）
+      try {
+        const list = await api.listChats(pid);
+        const full: Record<string, TaskState> = {};
+        await Promise.all(list.map(async (c) => {
+          try { full[c.session_id] = await api.getChat(c.session_id); } catch { /* 单条失败跳过 */ }
+        }));
+        set((s) => ({ chats: { ...s.chats, [pid]: full }, chatList: { ...s.chatList, [pid]: list } }));
+      } catch { /* chat 列表失败不阻断卡加载 */ }
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
     }
@@ -314,6 +336,76 @@ export const useProjection = create<ProjectionState>((set, get) => ({
       });
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  loadChats: async (pid) => {
+    try {
+      const list = await api.listChats(pid);
+      set((s) => ({ chatList: { ...s.chatList, [pid]: list } }));
+    } catch { /* 列表失败不阻断 */ }
+  },
+
+  loadChat: async (sid, pid) => {
+    try {
+      const t = await api.getChat(sid);
+      set((s) => {
+        // 归属：优先显式 pid，否则反查已有条目
+        const pid2 = pid || Object.keys(s.chats).find((k) => s.chats[k][sid]);
+        if (!pid2) return { error: 'chat 归属未知' };
+        return { chats: { ...s.chats, [pid2]: { ...s.chats[pid2], [sid]: t } } };
+      });
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  createChat: async (pid) => {
+    try {
+      const r = await api.createChat(pid);
+      set((s) => ({ revision: s.revision + 1 }));
+      await get().loadChats(pid);
+      return r.session_id;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  },
+
+  sendChat: async (sid, text) => {
+    try {
+      await api.sendChat(sid, text);
+      set((s) => ({ revision: s.revision + 1 }));
+      await get().loadChat(sid);
+      return true;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return false;
+    }
+  },
+
+  promoteChat: async (sid, input) => {
+    try {
+      const r = await api.promoteChat(sid, input);
+      set((s) => ({ revision: s.revision + 1 }));
+      // 会话已转卡：刷新项目（卡列表）+ 清掉 chat 摘要
+      const pid = Object.keys(get().chatList).find((k) => get().chats[k]?.[sid]);
+      await get().loadProject(pid || 'helmsman');
+      return r.card_id;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  },
+
+  saveChatToKb: async (sid, title) => {
+    try {
+      await api.saveChatToKb(sid, title);
+      set((s) => ({ revision: s.revision + 1 }));
+      return true;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return false;
     }
   },
 

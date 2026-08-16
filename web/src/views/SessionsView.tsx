@@ -1,6 +1,6 @@
 // 职责：会话记录 —— 项目下全部执行（= 会话）清单，解决"黑盒"：卡标题/状态/时间/模型/回合/成本一眼可见，
 // 点击打开详情抽屉（默认轨迹页签）。M2.3：执行挂卡下（1 卡 N 执行），清单平铺全部执行代次。
-import { useUi, writeHash } from '../store/ui';
+import { useUi, writeHash, openSession } from '../store/ui';
 import { useProjection, statusCounts, estCost, relTime, activityText, type TaskState } from '../store/projection';
 import { StatusPill } from '../components/StatusPill';
 import { EmptyState } from '../components/EmptyState';
@@ -8,17 +8,23 @@ import { Icon } from '../components/icons';
 
 export function SessionsView({ pid }: { pid: string }) {
   const cards = useProjection((s) => s.cards[pid] || {});
+  const chats = useProjection((s) => s.chats[pid] || {});
   const usage = useProjection((s) => s.usage);
 
-  // 平铺全部执行（会话），带卡归属
-  const rows: { t: TaskState; cardId: string; cardTitle: string }[] = [];
+  // 平铺全部会话：卡执行 + 简单会话（独立，不进看板）
+  const rows: { t: TaskState; cardId: string | null; cardTitle: string }[] = [];
   Object.values(cards).forEach((c) => {
     Object.values(c.executions).forEach((t) => rows.push({ t, cardId: c.id, cardTitle: c.title }));
   });
+  Object.values(chats).forEach((t) => rows.push({ t, cardId: null, cardTitle: '简单会话' }));
   const list = rows.sort((a, b) => (b.t.started_at ?? 0) - (a.t.started_at ?? 0));
   const counts = statusCounts(list.map((r) => r.t));
 
-  const open = (row: { t: TaskState; cardId: string }) => {
+  const open = (row: { t: TaskState; cardId: string | null }) => {
+    if (!row.cardId) {
+      openSession(pid, row.t.id, 'sessions', null);
+      return;
+    }
     useUi.getState().setRoute({ openId: row.cardId, tab: 'trajectory' });
     writeHash(pid, 'sessions', row.cardId, 'trajectory');
   };

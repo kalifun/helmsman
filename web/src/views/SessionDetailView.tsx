@@ -31,10 +31,11 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 反查卡（session → card）
+  // 反查归属：卡执行 → card.executions；简单会话 → chats（A 组）
   const cardEntry = Object.entries(cards[pid] ?? {}).find(([, c]) => c.executions[sid]);
   const card = cardEntry?.[1];
-  const task: TaskState | undefined = card?.executions[sid];
+  const chats = useProjection((s) => s.chats[pid] || {});
+  const task: TaskState | undefined = card?.executions[sid] ?? chats[sid];
   const stream = streams[sid];
 
   const back = () => writeHash(pid, useUi.getState().view === 'kanban' ? 'kanban' : 'kanban', card?.id ?? null, 'comments');
