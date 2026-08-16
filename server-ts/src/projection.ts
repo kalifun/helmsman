@@ -332,6 +332,8 @@ export interface Project {
   name: string
   path: string
   cards: Record<string, CardState>
+  /** 简单会话（两级制松入口）：不挂卡的独立会话（chat，不进看板） */
+  chats: Record<string, TaskState>
 }
 
 export interface Projection {
@@ -345,7 +347,7 @@ export function newProjection(): Projection {
 }
 
 export function ensureProject(p: Projection, id: string, name: string, path: string): void {
-  if (!p.projects[id]) p.projects[id] = { id, name, path, cards: {} }
+  if (!p.projects[id]) p.projects[id] = { id, name, path, cards: {}, chats: {} }
 }
 
 export function ensureCard(p: Projection, projectId: string, meta: CardMeta): void {
@@ -354,32 +356,52 @@ export function ensureCard(p: Projection, projectId: string, meta: CardMeta): vo
   if (!proj.cards[meta.id]) proj.cards[meta.id] = newCardState(meta)
 }
 
+/** 注册会话。cardId 为空 = 简单会话（独立，挂项目 chats 下，不进看板）。 */
 export function registerSession(p: Projection, sessionId: string, projectId: string, cardId: string): void {
   p.sessionProject[sessionId] = projectId
   p.sessionCard[sessionId] = cardId
   const proj = p.projects[projectId]
-  const card = proj?.cards[cardId]
-  if (!card) return
-  if (!card.executions[sessionId]) card.executions[sessionId] = newTaskState(sessionId)
-  if (!card.exec_order.includes(sessionId)) card.exec_order.push(sessionId)
+  if (!proj) return
+  if (cardId) {
+    const card = proj.cards[cardId]
+    if (!card) return
+    if (!card.executions[sessionId]) card.executions[sessionId] = newTaskState(sessionId)
+    if (!card.exec_order.includes(sessionId)) card.exec_order.push(sessionId)
+  } else {
+    if (!proj.chats[sessionId]) proj.chats[sessionId] = newTaskState(sessionId)
+  }
+}
+
+/** 会话归属解析（简单会话 → chats；执行 → 卡 executions） */
+function resolveSession(p: Projection, sessionId: string): TaskState | undefined {
+  const pid = p.sessionProject[sessionId]
+  const cardId = p.sessionCard[sessionId]
+  const proj = p.projects[pid]
+  if (!proj) return undefined
+  if (cardId) return proj.cards[cardId]?.executions[sessionId]
+  return proj.chats[sessionId]
 }
 
 export function foldSession(p: Projection, sessionId: string, ev: Record<string, unknown>): void {
   const cardId = p.sessionCard[sessionId]
   const pid = p.sessionProject[sessionId]
-  if (!cardId || !pid) return
-  const card = p.projects[pid]?.cards[cardId]
-  if (!card) return
-  const t = card.executions[sessionId] ?? (card.executions[sessionId] = newTaskState(sessionId))
+  if (!pid) return
+  const proj = p.projects[pid]
+  if (!proj) return
+  let t: TaskState | undefined
+  if (cardId) {
+    const card = proj.cards[cardId]
+    if (card) t = card.executions[sessionId] ?? (card.executions[sessionId] = newTaskState(sessionId))
+  } else {
+    t = proj.chats[sessionId] ?? (proj.chats[sessionId] = newTaskState(sessionId))
+  }
+  if (!t) return
   if (!t.id) t.id = sessionId
   foldTask(t, ev)
 }
 
 export function finishSession(p: Projection, sessionId: string, stopReason: string, at: number): void {
-  const cardId = p.sessionCard[sessionId]
-  const pid = p.sessionProject[sessionId]
-  if (!cardId || !pid) return
-  const t = p.projects[pid]?.cards[cardId]?.executions[sessionId]
+  const t = resolveSession(p, sessionId)
   if (t) finishTask(t, stopReason, at)
 }
 

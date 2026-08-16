@@ -131,6 +131,13 @@ export class Storage {
       );
       CREATE INDEX IF NOT EXISTS idx_policies_project ON policies(project_id);
 
+      -- A 组会话层闭环：简单会话（chat）持久化标记（重启后恢复为独立会话，不建隐式卡）
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        session_id  TEXT PRIMARY KEY,
+        project_id  TEXT NOT NULL,
+        created_at  INTEGER NOT NULL
+      );
+
       -- M4 知识库（architecture §4 kb_notes；双时态 + 信任分级 + 出处）
       CREATE TABLE IF NOT EXISTS kb_notes (
         id            TEXT PRIMARY KEY,
@@ -547,6 +554,27 @@ export class Storage {
   deletePolicy(id: number): boolean {
     const info = this.db.prepare('DELETE FROM policies WHERE id = ?').run(id)
     return info.changes > 0
+  }
+
+  // ---------- 简单会话（A 组：chat 持久化标记） ----------
+
+  registerChat(sessionId: string, projectId: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO chat_sessions (session_id, project_id, created_at) VALUES (?, ?, ?)')
+      .run(sessionId, projectId, Date.now())
+  }
+
+  isChat(sessionId: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM chat_sessions WHERE session_id = ?').get(sessionId)
+  }
+
+  /** 提升为任务后删除 chat 标记（会话转卡执行） */
+  unregisterChat(sessionId: string): void {
+    this.db.prepare('DELETE FROM chat_sessions WHERE session_id = ?').run(sessionId)
+  }
+
+  listChats(projectId: string): string[] {
+    const rows = this.db.prepare('SELECT session_id FROM chat_sessions WHERE project_id = ?').all(projectId) as Array<{ session_id: string }>
+    return rows.map((r) => r.session_id)
   }
 
   // ---------- 预设 Profile（P0 §2.6） ----------

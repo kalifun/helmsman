@@ -34,6 +34,7 @@ import {
   type CardMeta,
   type CardState,
   type Project,
+  type TaskState,
 } from './projection.ts'
 import { startTailer } from './observe/tail.ts'
 import { recoverStore } from './recovery.ts'
@@ -234,25 +235,46 @@ async function main(): Promise<void> {
     }
   }
 
+  // 简单会话恢复（A 组）：chat_sessions 标记的 session → 从隐式卡挪到项目 chats（独立会话不进看板）
+  for (const pid of Object.keys(proj.projects)) {
+    const p0 = proj.projects[pid]
+    for (const sid of storage.listChats(pid)) {
+      const cardId = proj.sessionCard[sid]
+      const t = cardId ? p0.cards[cardId]?.executions[sid] : p0.chats[sid]
+      if (!t) continue
+      if (cardId) {
+        const card = p0.cards[cardId]
+        if (card) {
+          delete card.executions[sid]
+          card.exec_order = card.exec_order.filter((x) => x !== sid)
+          // 隐式卡（无标题无执行）清掉
+          if (card.title === '' && card.exec_order.length === 0) delete p0.cards[cardId]
+        }
+        p0.chats[sid] = t
+        proj.sessionCard[sid] = ''
+      }
+    }
+  }
+
   // 既有项目补种子 Profile（老库无 profiles 表数据时）
   for (const pid of Object.keys(proj.projects)) storage.seedProfiles(pid)
 
   // 观察通道：tailer → fold + WS 广播（wsClients/broadcast 在 HTTP/WS 节定义）
   startTailer(SESSIONS_ROOT, offsets, (te) => {
-    // fold 到投影（按 session 路由）
+    // fold 到投影（按 session 路由：卡执行 / 简单会话）
     const cardId = proj.sessionCard[te.sessionId]
     const pid = proj.sessionProject[te.sessionId]
-    if (cardId && pid) {
-      const card = proj.projects[pid]?.cards[cardId]
-      const t = card?.executions[te.sessionId]
-      if (t) {
-        const before = t.status
-        foldTask(t, te.event)
-        broadcast(te.event)
-        // 调度门自动推进：刚完成 → 解锁的下游（无执行代次且 deps 全 Done）自动启动（并行分支，幂等）
-        if (before !== 'Done' && t.status === 'Done') {
-          void kickStartDownstream(pid)
-        }
+    if (!pid) return
+    const proj0 = proj.projects[pid]
+    if (!proj0) return
+    const t = cardId ? proj0.cards[cardId]?.executions[te.sessionId] : proj0.chats[te.sessionId]
+    if (t) {
+      const before = t.status
+      foldTask(t, te.event)
+      broadcast(te.event)
+      // 调度门自动推进：刚完成 → 解锁的下游（无执行代次且 deps 全 Done）自动启动（并行分支，幂等）
+      if (before !== 'Done' && t.status === 'Done') {
+        void kickStartDownstream(pid)
       }
     }
   })
@@ -563,6 +585,22 @@ async function main(): Promise<void> {
         console.warn(`[sched] auto-start ${card.id} failed: ${e instanceof Error ? e.message : e}`)
       })
     }
+  }
+
+  /** 简单会话解析（A 组）：sessionProject 有、sessionCard 空 → 项目 chats 里的 TaskState */
+  function resolveChatTask(sessionId: string): TaskState | undefined {
+    const pid = proj.sessionProject[sessionId]
+    if (!pid || proj.sessionCard[sessionId]) return undefined
+    return proj.projects[pid]?.chats[sessionId]
+  }
+
+  /** 会话最后一条 Text（列表展示用；无 Text 返回 null） */
+  function extractLastText(t: TaskState): string | null {
+    for (let i = t.activities.length - 1; i >= 0; i--) {
+      const a = t.activities[i]
+      if ('Text' in a && a.Text?.text) return a.Text.text.slice(0, 200)
+    }
+    return null
   }
 
   /** D1.7 需求校准：开校准会话 → agent 探索需求并提案验收标准（可判定断言）→ Waiting{calibrate} 等批复。
@@ -934,6 +972,130 @@ async function main(): Promise<void> {
         return
       }
 
+      // ---------- 简单会话（A 组：两级制松入口，不挂卡不进看板） ----------
+      const chatsMatch = path.match(/^\/api\/projects\/([^/]+)\/chats$/)
+      if (chatsMatch && method === 'POST') {
+        const pid = decodeURIComponent(chatsMatch[1])
+        const p = proj.projects[pid]
+        if (!p) throw new HttpError(404, `project '${pid}' not found`)
+        const sid = await acp.sessionNew(p.path, undefined)
+        registerSession(proj, sid, pid, '')
+        storage.registerChat(sid, pid)
+        send(201, { session_id: sid })
+        return
+      }
+      if (chatsMatch && method === 'GET') {
+        const pid = decodeURIComponent(chatsMatch[1])
+        const p = proj.projects[pid]
+        if (!p) throw new HttpError(404, `project '${pid}' not found`)
+        const out = Object.values(p.chats)
+          .map((t) => ({
+            session_id: t.id,
+            status: t.status,
+            turns: t.turns,
+            steps: t.steps,
+            last_text: t.activities.length ? extractLastText(t) : null,
+            started_at: t.started_at ?? null,
+          }))
+          .sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))
+        send(200, out)
+        return
+      }
+      const chatMatch = path.match(/^\/api\/chats\/([^/]+)$/)
+      if (chatMatch && method === 'GET') {
+        const sid = decodeURIComponent(chatMatch[1])
+        const t = resolveChatTask(sid)
+        if (!t) throw new HttpError(404, `chat '${sid}' not found`)
+        send(200, t)
+        return
+      }
+      if (chatMatch && method === 'POST') {
+        const sid = decodeURIComponent(chatMatch[1])
+        const t = resolveChatTask(sid)
+        if (!t) throw new HttpError(404, `chat '${sid}' not found`)
+        const body = await readBody()
+        const text = typeof body.text === 'string' && body.text.trim() ? body.text.trim() : ''
+        if (!text) throw new HttpError(400, 'text required')
+        const stopReason = await acp.sessionPrompt(sid, text).catch((e) => {
+          console.error(`[chat] ${sid}:`, e)
+          return 'error'
+        })
+        await waitTailer()
+        finishSession(proj, sid, stopReason, nowMs())
+        send(200, { ok: true, stop_reason: stopReason })
+        return
+      }
+      // 提升为任务（主路径：会话上下文进简报 → 建卡自动跑）
+      const promoteMatch = path.match(/^\/api\/chats\/([^/]+)\/promote$/)
+      if (promoteMatch && method === 'POST') {
+        const sid = decodeURIComponent(promoteMatch[1])
+        const pid = proj.sessionProject[sid]
+        const p = pid ? proj.projects[pid] : undefined
+        const t = resolveChatTask(sid)
+        if (!p || !t) throw new HttpError(404, `chat '${sid}' not found`)
+        const body = await readBody()
+        const cardId = genCardId()
+        const created = nowMs()
+        const firstUser = t.comments.find((c) => c.who === 'user')?.text ?? ''
+        const title = typeof body.title === 'string' && body.title.trim()
+          ? body.title.trim()
+          : firstUser.split('\n')[0]?.slice(0, 60) || `会话提升 ${new Date(created).toLocaleTimeString()}`
+        const description = typeof body.description === 'string' && body.description.trim()
+          ? body.description.trim()
+          : `${firstUser}\n\n（提升自简单会话 · 完整上下文见会话 ${sid.slice(0, 8)}）`.trim()
+        const meta: CardMeta = {
+          id: cardId, title, description, kind: 'task',
+          milestone: null, criteria: null, deps: [], created_at: created,
+        }
+        ensureCard(proj, pid, meta)
+        storage.upsertCard({ ...meta, project_id: pid })
+        // 会话转卡执行（挂到新卡下，保留事件流）
+        delete p.chats[sid]
+        p.cards[cardId].executions[sid] = t
+        p.cards[cardId].exec_order.push(sid)
+        proj.sessionCard[sid] = cardId
+        storage.unregisterChat(sid)
+        storage.upsertExecution({
+          id: sid, card_id: cardId, status: t.status,
+          preset_json: '{}', deps_json: '[]',
+          forked_from: null, started_at: t.started_at ?? null, finished_at: t.finished_at ?? null, created_at: created,
+        })
+        // 首代执行（上下文 = 会话上下文已进 description → 简报）
+        const newSid = await startExecution(pid, cardId, null, { brief: true })
+        send(201, { card_id: cardId, session_id: newSid, chat_session: sid })
+        return
+      }
+      // 存入知识库（会话结论 → KB 笔记）
+      const kbFromChatMatch = path.match(/^\/api\/chats\/([^/]+)\/kb$/)
+      if (kbFromChatMatch && method === 'POST') {
+        const sid = decodeURIComponent(kbFromChatMatch[1])
+        const pid = proj.sessionProject[sid]
+        const t = resolveChatTask(sid)
+        if (!pid || !t) throw new HttpError(404, `chat '${sid}' not found`)
+        const body = await readBody()
+        const conclusion = extractConclusion({
+          taskTitle: typeof body.title === 'string' && body.title.trim() ? body.title.trim() : '会话结论',
+          comments: t.comments.map((cm) => ({ who: cm.who, text: cm.text })),
+          activities: t.activities,
+          turns: t.turns,
+          status: t.status,
+        })
+        const note = makeNote({
+          projectId: pid,
+          title: conclusion?.title ?? (typeof body.title === 'string' && body.title.trim() ? body.title.trim() : '会话结论'),
+          content: conclusion?.content ?? [],
+          tags: ['chat'],
+          keywords: conclusion?.keywords ?? [],
+          summary: conclusion?.summary ?? '',
+          sourceKind: 'task',
+          sourceRef: sid,
+          trust: 'human-approved', // 用户主动判断"值得记住" = 背书（主观 human-approved）
+        })
+        storage.upsertNote(note)
+        send(201, { note_id: note.id })
+        return
+      }
+
       // ---------- 任务（兼容旧接口 + 评论/取消） ----------
       const tasksMatch = path.match(/^\/api\/projects\/([^/]+)\/tasks$/)
       if (tasksMatch && method === 'POST') {
@@ -967,7 +1129,7 @@ async function main(): Promise<void> {
         const body = await readBody()
         const text = typeof body.text === 'string' ? body.text.trim() : ''
         if (!text) throw new HttpError(400, 'empty comment')
-        if (!proj.sessionCard[sid]) throw new HttpError(404, 'task not found')
+        if (!proj.sessionProject[sid]) throw new HttpError(404, 'task not found')
         void acp.sessionPrompt(sid, text).catch((e) => console.error(`[comment] ${sid} failed:`, e))
         send(200, { ok: true })
         return
