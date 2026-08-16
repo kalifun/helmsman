@@ -2,16 +2,13 @@
 // 每张显示"要什么 + 为什么 + 卡了多久"，决策（批准/拒绝）必须带评论送达 agent。
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
-import { listApprovals, decideApproval, type ApprovalItem } from '../api/client';
+import { listApprovals, decideApproval, listPolicies, deletePolicy, type ApprovalItem, type PolicyRow } from '../api/client';
 import { Markdown } from '../components/Markdown';
 
 const KIND_LABEL: Record<string, string> = {
   plan: '计划确认',
   calibrate: '验收标准提案',
   checkpoint: '阶段确认',
-  permission: '权限请求',
-  acceptance: '交付验收',
-  cost: '成本确认',
   permission: '权限请求',
   acceptance: '验收',
   cost: '成本预算',
@@ -23,13 +20,18 @@ export function ApprovalsView({ pid }: { pid: string }) {
   const [items, setItems] = useState<ApprovalItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [comments, setComments] = useState<Record<number, string>>({});
+  const [remembers, setRemembers] = useState<Record<number, boolean>>({});
+  const [policies, setPolicies] = useState<PolicyRow[]>([]);
+  const [showPolicies, setShowPolicies] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
       setItems(await listApprovals(pid));
+      setPolicies(await listPolicies(pid));
     } catch {
       setItems([]);
+      setPolicies([]);
     } finally {
       setLoading(false);
     }
@@ -41,15 +43,34 @@ export function ApprovalsView({ pid }: { pid: string }) {
     return () => clearInterval(timer);
   }, [pid]);
 
-  const decide = async (id: number, outcome: 'approved' | 'rejected') => {
-    const ok = await decideApproval(id, outcome, comments[id] ?? '');
+  const decide = async (id: number, outcome: 'approved' | 'rejected', remember = remembers[id] ?? false) => {
+    const ok = await decideApproval(id, outcome, comments[id] ?? '', remember);
     if (ok) await load();
   };
 
   return (
     <div id="apprview">
       <div className="panel">
-        <h2>批复队列 <span className="muted">Waiting · 一等表面（§4）</span></h2>
+        <h2>
+          批复队列 <span className="muted">Waiting · 一等表面（§4）</span>
+          <button className="policy-toggle" onClick={() => setShowPolicies((v) => !v)}>
+            🧠 策略规则 {policies.length ? `(${policies.length})` : ''}
+          </button>
+        </h2>
+        {showPolicies && (
+          <div className="policy-panel">
+            {policies.length === 0 && <div className="muted" style={{ padding: '6px 0' }}>暂无策略 —— 批复时勾选「记住这个选择」会沉淀策略原子，同类批复 count≥2 后给出建议。</div>}
+            {policies.map((p) => (
+              <div key={p.id} className="policy-row">
+                <span className="tag">{p.kind}</span>
+                <span className="tag">{p.scope}</span>
+                <span className={'policy-outcome ' + p.outcome}>{p.outcome === 'approved' ? '批准' : '拒绝'} ×{p.count}</span>
+                <span className="muted" style={{ fontSize: 10.5, fontFamily: 'var(--mono)' }}>{new Date(p.updated_at).toLocaleString()}</span>
+                <button className="btn mini ghost" onClick={async () => { if (await deletePolicy(p.id)) void load(); }}>删除</button>
+              </div>
+            ))}
+          </div>
+        )}
         {loading && items.length === 0 && <p className="muted">加载中…</p>}
         {!loading && items.length === 0 && (
           <p className="muted">队列为空 · 任务停在 Waiting 时出现在这里（含等待原因）</p>
@@ -60,7 +81,13 @@ export function ApprovalsView({ pid }: { pid: string }) {
               <Icon name={KIND_ICON[a.kind] as 'lock' | 'check' | 'warn' | 'doc'} size="sm" />
               <strong>{KIND_LABEL[a.kind] ?? a.kind}</strong>
               <span className="muted">#{a.id} · {a.task_title ?? a.execution_id.slice(0, 8)}</span>
+              {a.card_kind ? <span className="tag">{a.card_kind}</span> : null}
             </div>
+            {a.policy_suggestion ? (
+              <div className="policy-suggest" onClick={() => void decide(a.id, a.policy_suggestion!.outcome, true)}>
+                🧠 历史策略：{a.policy_suggestion.scope === 'global' ? '项目' : a.policy_suggestion.scope}类已{a.policy_suggestion.outcome === 'approved' ? '批准' : '拒绝'} {a.policy_suggestion.count} 次 —— 一键采用（仅本次，不静默）
+              </div>
+            ) : null}
             <div className="appr-reason">{a.reason || '（无原因说明）'}</div>
             <div className="appr-payload">
               {Object.entries(a.payload).map(([k, v]) => {
@@ -98,6 +125,14 @@ export function ApprovalsView({ pid }: { pid: string }) {
                 value={comments[a.id] ?? ''}
                 onChange={(e) => setComments((c) => ({ ...c, [a.id]: e.target.value }))}
               />
+              <label className="appr-remember" title="沉淀为策略原子：同类批复 count≥2 后给出建议">
+                <input
+                  type="checkbox"
+                  checked={remembers[a.id] ?? false}
+                  onChange={(e) => setRemembers((r) => ({ ...r, [a.id]: e.target.checked }))}
+                />
+                记住
+              </label>
               <button className="btn primary" onClick={() => void decide(a.id, 'approved')}>✅ 批准</button>
               <button className="btn" onClick={() => void decide(a.id, 'rejected')}>✋ 拒绝</button>
             </div>

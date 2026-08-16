@@ -208,7 +208,7 @@ export interface ApprovalItem {
   id: number;
   project_id: string;
   execution_id: string;
-  kind: 'plan' | 'permission' | 'acceptance' | 'cost';
+  kind: 'plan' | 'permission' | 'acceptance' | 'cost' | 'calibrate' | 'checkpoint';
   payload: Record<string, unknown>;
   reason: string | null;
   outcome: 'approved' | 'rejected' | 'suspended' | null;
@@ -218,6 +218,9 @@ export interface ApprovalItem {
   suspended_at: number | null;
   task_title?: string;
   card_id?: string | null;
+  card_kind?: string | null;
+  /** 策略建议（P1 O6）：同类批复历史沉淀，count>=2；{ scope, outcome, count } | null */
+  policy_suggestion?: { scope: string; outcome: 'approved' | 'rejected'; count: number } | null;
 }
 
 /** GET /api/approvals?project= —— 待批复队列 */
@@ -235,13 +238,35 @@ export async function triggerWaiting(sid: string, kind: string, reason: string):
   return res.ok;
 }
 
-/** POST /api/approvals/:id —— 决策（approve/reject + 评论送达 agent） */
-export async function decideApproval(id: number, outcome: 'approved' | 'rejected', comment: string): Promise<boolean> {
+/** POST /api/approvals/:id —— 决策（approve/reject + 评论送达 agent）；remember=true 沉淀策略原子 */
+export async function decideApproval(id: number, outcome: 'approved' | 'rejected', comment: string, remember = false): Promise<boolean> {
   const res = await fetch(BASE + '/approvals/' + id, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ outcome, comment }),
+    body: JSON.stringify({ outcome, comment, remember }),
   });
+  return res.ok;
+}
+
+// ---------- 策略学习（P1 O6：规则可查看可删除） ----------
+
+export interface PolicyRow {
+  id: number;
+  project_id: string;
+  kind: string;
+  scope: string;
+  outcome: 'approved' | 'rejected';
+  count: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export function listPolicies(pid: string): Promise<PolicyRow[]> {
+  return req<PolicyRow[]>('/policies?project=' + encodeURIComponent(pid));
+}
+
+export async function deletePolicy(id: number): Promise<boolean> {
+  const res = await fetch(BASE + '/policies/' + id, { method: 'DELETE' });
   return res.ok;
 }
 
