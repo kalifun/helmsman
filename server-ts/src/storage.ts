@@ -117,6 +117,20 @@ export class Storage {
         PRIMARY KEY (project_id, key)
       );
 
+      -- P1 策略学习（O6：每次批复可沉淀策略原子；命令模式级白名单等引擎缝，先落批复策略）
+      CREATE TABLE IF NOT EXISTS policies (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id  TEXT NOT NULL,
+        kind        TEXT NOT NULL,              -- 批复类型：checkpoint | calibrate | plan | acceptance | permission
+        scope       TEXT NOT NULL,              -- 卡类型：requirement | bug | task | global
+        outcome     TEXT NOT NULL,              -- approved | rejected
+        count       INTEGER NOT NULL DEFAULT 1,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL,
+        UNIQUE (project_id, kind, scope, outcome)
+      );
+      CREATE INDEX IF NOT EXISTS idx_policies_project ON policies(project_id);
+
       -- M4 知识库（architecture §4 kb_notes；双时态 + 信任分级 + 出处）
       CREATE TABLE IF NOT EXISTS kb_notes (
         id            TEXT PRIMARY KEY,
@@ -500,6 +514,41 @@ export class Storage {
     return info.changes > 0
   }
 
+  // ---------- 策略学习（P1 O6：批复 → 策略原子，规则可查看可删除） ----------
+
+  /** 学习一条策略：同 (kind, scope, outcome) 累计 count；返回最新规则。 */
+  learnPolicy(projectId: string, kind: string, scope: string, outcome: 'approved' | 'rejected'): PolicyRow {
+    const t = Date.now()
+    this.db
+      .prepare(
+        `INSERT INTO policies (project_id, kind, scope, outcome, count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(project_id, kind, scope, outcome) DO UPDATE SET
+           count = count + 1, updated_at = excluded.updated_at`,
+      )
+      .run(projectId, kind, scope, outcome, t, t)
+    return this.getPolicy(projectId, kind, scope, outcome)!
+  }
+
+  getPolicy(projectId: string, kind: string, scope: string, outcome: string): PolicyRow | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM policies WHERE project_id = ? AND kind = ? AND scope = ? AND outcome = ?')
+      .get(projectId, kind, scope, outcome) as Record<string, unknown> | undefined
+    return row ? rowToPolicy(row) : undefined
+  }
+
+  listPolicies(projectId: string): PolicyRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM policies WHERE project_id = ? ORDER BY updated_at DESC')
+      .all(projectId) as Array<Record<string, unknown>>
+    return rows.map(rowToPolicy)
+  }
+
+  deletePolicy(id: number): boolean {
+    const info = this.db.prepare('DELETE FROM policies WHERE id = ?').run(id)
+    return info.changes > 0
+  }
+
   // ---------- 预设 Profile（P0 §2.6） ----------
 
   /** 种子内置 4 个 Profile（幂等）；首个成为项目默认。返回是否首次种子。 */
@@ -816,4 +865,49 @@ function rowToProfile(r: Record<string, unknown>): Profile {
     created_at: r.created_at as number,
     updated_at: r.updated_at as number,
   }
+}
+
+// ---------- 策略学习类型（P1 O6） ----------
+
+export interface PolicyRow {
+  id: number
+  project_id: string
+  kind: string
+  scope: string
+  outcome: 'approved' | 'rejected'
+  count: number
+  created_at: number
+  updated_at: number
+}
+
+function rowToPolicy(r: Record<string, unknown>): PolicyRow {
+  return {
+    id: r.id as number,
+    project_id: r.project_id as string,
+    kind: r.kind as string,
+    scope: r.scope as string,
+    outcome: r.outcome as 'approved' | 'rejected',
+    count: r.count as number,
+    created_at: r.created_at as number,
+    updated_at: r.updated_at as number,
+  }
+}
+
+/** 策略建议（P1 O6）：同类批复历史沉淀——精确匹配卡类型，fallback global；count>=2 才建议。
+ *  只建议不自动应用（防静默降级，Claude #41763 反面）。 */
+export function policySuggestion(
+  storage: Storage,
+  projectId: string,
+  kind: string,
+  cardKind: string | null | undefined,
+): { scope: string; outcome: 'approved' | 'rejected'; count: number } | null {
+  const scopes = [cardKind || 'task', 'global']
+  let best: { scope: string; outcome: 'approved' | 'rejected'; count: number } | null = null
+  for (const scope of scopes) {
+    const p = storage.getPolicy(projectId, kind, scope, 'approved')
+    if (p && p.count >= 2 && (!best || p.count > best.count)) {
+      best = { scope: p.scope, outcome: p.outcome, count: p.count }
+    }
+  }
+  return best
 }

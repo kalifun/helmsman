@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
 import { execSync } from 'node:child_process'
 import { startEngine } from './engine.ts'
-import { Storage, parseIdArray } from './storage.ts'
+import { Storage, parseIdArray, policySuggestion } from './storage.ts'
 import {
   newProjection,
   ensureProject,
@@ -1056,21 +1056,38 @@ async function main(): Promise<void> {
         return
       }
 
-      // GET /api/approvals?project= —— 批复队列（待批复 + 等待原因）
+      // GET /api/approvals?project= —— 批复队列（待批复 + 等待原因 + 策略建议）
       if (method === 'GET' && path === '/api/approvals') {
         const projectId = url.searchParams.get('project') ?? 'helmsman'
         const pending = storage.listPendingApprovals(projectId)
-        // 附带任务标题/卡归属（队列展示需要）
+        // 附带任务标题/卡归属/策略建议（队列展示需要；建议 = 同类批复历史沉淀，count>=2 才建议）
         const enriched = pending.map((a) => {
           const t = proj.projects[a.project_id]?.cards[proj.sessionCard[a.execution_id]]?.executions[a.execution_id]
+          const cardId = proj.sessionCard[a.execution_id] ?? null
+          const cardKind = cardId ? proj.projects[a.project_id]?.cards[cardId]?.kind : null
           return {
             ...a,
             task_title: t?.title ?? a.execution_id,
-            card_id: proj.sessionCard[a.execution_id] ?? null,
+            card_id: cardId,
+            card_kind: cardKind ?? null,
             waiting: t?.waiting ?? null,
+            policy_suggestion: policySuggestion(storage, projectId, a.kind, cardKind),
           }
         })
         send(200, enriched)
+        return
+      }
+
+      // ---------- 策略学习（P1 O6：规则可查看可删除） ----------
+      if (method === 'GET' && path === '/api/policies') {
+        const projectId = url.searchParams.get('project') ?? 'helmsman'
+        send(200, storage.listPolicies(projectId))
+        return
+      }
+      const policyMatch = path.match(/^\/api\/policies\/(\d+)$/)
+      if (policyMatch && method === 'DELETE') {
+        if (!storage.deletePolicy(Number(policyMatch[1]))) throw new HttpError(404, 'policy not found')
+        send(200, { ok: true })
         return
       }
 
@@ -1082,9 +1099,16 @@ async function main(): Promise<void> {
         const outcome = body.outcome === 'approved' ? 'approved' : body.outcome === 'rejected' ? 'rejected' : null
         if (!outcome) throw new HttpError(400, 'outcome must be approved|rejected')
         const comment = typeof body.comment === 'string' ? body.comment.trim() : ''
+        const remember = body.remember === true
         const appr = storage.getApproval(id)
         if (!appr) throw new HttpError(404, `approval ${id} not found`)
         if (!storage.decideApproval(id, outcome, comment)) throw new HttpError(409, 'already decided')
+        // 策略学习（P1 O6）：remember=true → 沉淀策略原子（kind × 卡类型 × outcome 累计）
+        if (remember) {
+          const cardId = proj.sessionCard[appr.execution_id]
+          const cardKind = cardId ? proj.projects[appr.project_id]?.cards[cardId]?.kind : null
+          storage.learnPolicy(appr.project_id, appr.kind, cardKind || 'task', outcome)
+        }
         // 决策送达 agent：评论回灌 + 放行（Waiting 清除，任务可继续）
         const sid = appr.execution_id
         const t = proj.projects[appr.project_id]?.cards[proj.sessionCard[sid]]?.executions[sid]
