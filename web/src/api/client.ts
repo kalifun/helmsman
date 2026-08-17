@@ -280,6 +280,23 @@ export async function deletePolicy(id: number): Promise<boolean> {
   return res.ok;
 }
 
+/** GET /api/approvals/suspended —— 挂起批复（O5：Waiting 超时自动挂起） */
+export function listSuspendedApprovals(pid: string): Promise<ApprovalItem[]> {
+  return req<ApprovalItem[]>('/approvals/suspended?project=' + encodeURIComponent(pid));
+}
+
+/** POST /api/approvals/:id/resume —— 恢复单条挂起（原会话从 Waiting 点继续） */
+export async function resumeApproval(id: number): Promise<boolean> {
+  const res = await fetch(BASE + '/approvals/' + id + '/resume', { method: 'POST' });
+  return res.ok;
+}
+
+/** POST /api/projects/:pid/approvals/resume-all —— 批量恢复 */
+export async function resumeAllApprovals(pid: string): Promise<boolean> {
+  const res = await fetch(BASE + '/projects/' + encodeURIComponent(pid) + '/approvals/resume-all', { method: 'POST' });
+  return res.ok;
+}
+
 /** GET /api/presets —— 可用 agent 预设（每任务工具/人格组装） */
 export interface PresetInfo { id: string; name: string; description: string }
 export function listPresets(): Promise<PresetInfo[]> {

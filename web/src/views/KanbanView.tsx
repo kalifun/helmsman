@@ -27,6 +27,7 @@ export function KanbanView({ pid }: { pid: string }) {
   const toast = useUi((s) => s.toast);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropCol, setDropCol] = useState<string | null>(null);
+  const [milestoneFilter, setMilestoneFilter] = useState<string | null>(null);
 
   const all = useMemo(() => Object.values(cards), [cards]);
   const byId = useMemo(() => cards, [cards]);
@@ -77,10 +78,35 @@ export function KanbanView({ pid }: { pid: string }) {
     );
   }
 
+  const milestones = [...new Set(all.map((c) => c.milestone).filter((m): m is string => !!m))];
+
   return (
     <div id="kanban">
+      {milestones.length > 0 ? (
+        <div className="kbar">
+          <button
+            className={'kbar-chip' + (milestoneFilter === null ? ' active' : '')}
+            onClick={() => setMilestoneFilter(null)}
+          >全部</button>
+          {milestones.map((m) => {
+            const done = all.filter((c) => c.milestone === m && cardStatus(c) === 'Done').length;
+            const total = all.filter((c) => c.milestone === m).length;
+            return (
+              <button
+                key={m}
+                className={'kbar-chip' + (milestoneFilter === m ? ' active' : '')}
+                onClick={() => setMilestoneFilter(milestoneFilter === m ? null : m)}
+                title={`${m}：${done}/${total} 完成`}
+              >
+                {m} <span className="kbar-count">{done}/{total}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       {COLS.map((col) => {
         const items = all.filter((c) => {
+          if (milestoneFilter && c.milestone !== milestoneFilter) return false;
           const st = cardStatus(c);
           return col.key === 'Running' ? st === 'Running' || st === 'Waiting' : st === col.key;
         });

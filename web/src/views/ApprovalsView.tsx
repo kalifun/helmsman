@@ -2,7 +2,7 @@
 // 每张显示"要什么 + 为什么 + 卡了多久"，决策（批准/拒绝）必须带评论送达 agent。
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
-import { listApprovals, decideApproval, listPolicies, deletePolicy, type ApprovalItem, type PolicyRow } from '../api/client';
+import { listApprovals, decideApproval, listPolicies, deletePolicy, listSuspendedApprovals, resumeApproval, resumeAllApprovals, type ApprovalItem, type PolicyRow } from '../api/client';
 import { Markdown } from '../components/Markdown';
 
 const KIND_LABEL: Record<string, string> = {
@@ -23,15 +23,18 @@ export function ApprovalsView({ pid }: { pid: string }) {
   const [remembers, setRemembers] = useState<Record<number, boolean>>({});
   const [policies, setPolicies] = useState<PolicyRow[]>([]);
   const [showPolicies, setShowPolicies] = useState(false);
+  const [suspended, setSuspended] = useState<ApprovalItem[]>([]);
 
   const load = async () => {
     setLoading(true);
     try {
       setItems(await listApprovals(pid));
       setPolicies(await listPolicies(pid));
+      setSuspended(await listSuspendedApprovals(pid));
     } catch {
       setItems([]);
       setPolicies([]);
+      setSuspended([]);
     } finally {
       setLoading(false);
     }
@@ -71,6 +74,22 @@ export function ApprovalsView({ pid }: { pid: string }) {
             ))}
           </div>
         )}
+        {suspended.length > 0 ? (
+          <div className="suspend-panel">
+            <div className="suspend-head">
+              <span>⏸ 挂起 {suspended.length} 项（Waiting 超时 30 分钟自动挂起 · 非失败）</span>
+              <button className="btn mini ghost" onClick={async () => { if (await resumeAllApprovals(pid)) void load(); }}>全部恢复</button>
+            </div>
+            {suspended.map((a) => (
+              <div key={a.id} className="suspend-row">
+                <span className="tag">{KIND_LABEL[a.kind] ?? a.kind}</span>
+                <span className="suspend-title">{a.task_title}</span>
+                <span className="muted" style={{ fontSize: 10.5, fontFamily: 'var(--mono)' }}>#{a.id}</span>
+                <button className="btn mini" onClick={async () => { if (await resumeApproval(a.id)) void load(); }}>恢复</button>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {loading && items.length === 0 && <p className="muted">加载中…</p>}
         {!loading && items.length === 0 && (
           <p className="muted">队列为空 · 任务停在 Waiting 时出现在这里（含等待原因）</p>
