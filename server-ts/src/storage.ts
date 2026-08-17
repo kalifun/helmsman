@@ -483,6 +483,29 @@ export class Storage {
   }
 
   /** 待批复队列（按项目；含等待原因与挂起标记）。 */
+  listSuspendedApprovals(projectId: string): ApprovalRow[] {
+    const rows = this.db
+      .prepare("SELECT * FROM approvals WHERE project_id = ? AND outcome = 'suspended' ORDER BY suspended_at")
+      .all(projectId) as Array<Record<string, unknown>>
+    return rows.map(rowToApproval)
+  }
+
+  /** 恢复挂起批复（O5：原会话从 Waiting 点继续，模式不丢） */
+  resumeApproval(id: number): boolean {
+    const info = this.db
+      .prepare('UPDATE approvals SET outcome = NULL, decided_at = NULL, suspended_at = NULL WHERE id = ? AND outcome = ?')
+      .run(id, 'suspended')
+    return info.changes > 0
+  }
+
+  /** 批量恢复（O5：恢复 = 全部挂起项重新进队列） */
+  resumeAllApprovals(projectId: string): number {
+    const info = this.db
+      .prepare('UPDATE approvals SET outcome = NULL, decided_at = NULL, suspended_at = NULL WHERE project_id = ? AND outcome = ?')
+      .run(projectId, 'suspended')
+    return info.changes
+  }
+
   listPendingApprovals(projectId: string): ApprovalRow[] {
     const rows = this.db
       .prepare('SELECT * FROM approvals WHERE project_id = ? AND outcome IS NULL ORDER BY created_at')

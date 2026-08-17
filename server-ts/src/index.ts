@@ -279,6 +279,22 @@ async function main(): Promise<void> {
     }
   })
 
+  // O5 超时挂起：pending 批复超时（默认 30 分钟，可配 HELMSMAN_APPROVAL_TIMEOUT_MS）→ 自动挂起（任务变 ⏸ 挂起，非失败）
+  const APPROVAL_TIMEOUT_MS = Number(process.env.HELMSMAN_APPROVAL_TIMEOUT_MS ?? 30 * 60 * 1000)
+  setInterval(() => {
+    const now = Date.now()
+    for (const pid of Object.keys(proj.projects)) {
+      for (const a of storage.listPendingApprovals(pid)) {
+        if (now - a.created_at < APPROVAL_TIMEOUT_MS) continue
+        if (storage.suspendApproval(a.id)) {
+          const t = resolveAnyTask(a.execution_id)
+          if (t && t.waiting) t.waiting.payload.suspended_at = now
+          console.warn(`[approval] #${a.id} suspended (${a.kind}) after ${APPROVAL_TIMEOUT_MS}ms`)
+        }
+      }
+    }
+  }, 60 * 1000).unref()
+
   // ---------- HTTP/WS ----------
   const server = createServer((req, res) => {
     void handle(req, res)
@@ -585,6 +601,15 @@ async function main(): Promise<void> {
         console.warn(`[sched] auto-start ${card.id} failed: ${e instanceof Error ? e.message : e}`)
       })
     }
+  }
+
+  /** 按会话 id 解析任意任务（卡执行或简单会话；挂起定时器用） */
+  function resolveAnyTask(sessionId: string): TaskState | undefined {
+    const pid = proj.sessionProject[sessionId]
+    const cardId = proj.sessionCard[sessionId]
+    const p = pid ? proj.projects[pid] : undefined
+    if (!p) return undefined
+    return cardId ? p.cards[cardId]?.executions[sessionId] : p.chats[sessionId]
   }
 
   /** 简单会话解析（A 组）：sessionProject 有、sessionCard 空 → 项目 chats 里的 TaskState */
@@ -1275,6 +1300,40 @@ async function main(): Promise<void> {
           }
         })
         send(200, enriched)
+        return
+      }
+
+      // ---------- 超时挂起（O5：挂起列表 / 恢复 / 批量恢复） ----------
+      if (method === 'GET' && path === '/api/approvals/suspended') {
+        const projectId = url.searchParams.get('project') ?? 'helmsman'
+        const suspended = storage.listSuspendedApprovals(projectId).map((a) => ({
+          ...a,
+          task_title: resolveAnyTask(a.execution_id)?.title ?? a.execution_id,
+          card_id: proj.sessionCard[a.execution_id] ?? null,
+        }))
+        send(200, suspended)
+        return
+      }
+      const resumeMatch = path.match(/^\/api\/approvals\/(\d+)\/resume$/)
+      if (resumeMatch && method === 'POST') {
+        const id = Number(resumeMatch[1])
+        const appr = storage.getApproval(id)
+        if (!appr) throw new HttpError(404, `approval ${id} not found`)
+        if (!storage.resumeApproval(id)) throw new HttpError(409, 'not suspended')
+        const t = resolveAnyTask(appr.execution_id)
+        if (t?.waiting) delete t.waiting.payload.suspended_at
+        send(200, { ok: true })
+        return
+      }
+      const resumeAllMatch = path.match(/^\/api\/projects\/([^/]+)\/approvals\/resume-all$/)
+      if (resumeAllMatch && method === 'POST') {
+        const projectId = decodeURIComponent(resumeAllMatch[1])
+        const n = storage.resumeAllApprovals(projectId)
+        for (const a of storage.listPendingApprovals(projectId)) {
+          const t = resolveAnyTask(a.execution_id)
+          if (t?.waiting) delete t.waiting.payload.suspended_at
+        }
+        send(200, { ok: true, resumed: n })
         return
       }
 
