@@ -6,7 +6,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash } from 'node:crypto'
-import { readdirSync, renameSync, rmSync, mkdirSync, openSync, readSync, closeSync } from 'node:fs'
+import { readdirSync, renameSync, rmSync, mkdirSync, openSync, readSync, closeSync, statSync } from 'node:fs'
 import { join, basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -846,6 +846,17 @@ async function main(): Promise<void> {
         return
       }
 
+      // ---------- 工作区文件树（活状态现取；安全过滤：跳过依赖/隐藏/产物目录，限深限数） ----------
+      const filesMatch = path.match(/^\/api\/projects\/([^/]+)\/files$/)
+      if (filesMatch && method === 'GET') {
+        const pid = decodeURIComponent(filesMatch[1])
+        const p = proj.projects[pid]
+        if (!p) throw new HttpError(404, `project '${pid}' not found`)
+        const root = listFileTree(p.path)
+        send(200, root)
+        return
+      }
+
       // ---------- 卡 ----------
       const cardsMatch = path.match(/^\/api\/projects\/([^/]+)\/cards$/)
       if (cardsMatch && method === 'GET') {
@@ -1093,6 +1104,33 @@ async function main(): Promise<void> {
         })
         storage.upsertNote(note)
         send(201, { note_id: note.id })
+        return
+      }
+
+      // 手动标记状态（设计状态机：任意可操作状态 → 手动标记完成/失败/待办；红线：事件接口，非前端直改）
+      const statusMatch = path.match(/^\/api\/cards\/([^/]+)\/status$/)
+      if (statusMatch && method === 'POST') {
+        const cardId = decodeURIComponent(statusMatch[1])
+        const entry = Object.entries(proj.projects).find(([, p]) => p.cards[cardId])
+        if (!entry) throw new HttpError(404, `card '${cardId}' not found`)
+        const [pid, p] = entry
+        const card = p.cards[cardId]
+        const body = await readBody()
+        const status = body.status === 'Done' || body.status === 'Failed' || body.status === 'Pending' ? body.status : null
+        if (!status) throw new HttpError(400, 'status must be Done|Failed|Pending')
+        const t = latestExecution(card)
+        if (!t) throw new HttpError(400, 'card has no execution to mark')
+        t.status = status
+        if (status === 'Done') { t.finished_at = t.finished_at ?? nowMs() } else { t.finished_at = undefined }
+        storage.upsertExecution({
+          id: t.id, card_id: cardId, status,
+          preset_json: '{}', deps_json: JSON.stringify(card.deps ?? []),
+          forked_from: null, started_at: t.started_at ?? null, finished_at: t.finished_at ?? null,
+          created_at: card.created_at,
+        })
+        // 手动标记 Done → 调度门可能解锁下游
+        void kickStartDownstream(pid)
+        send(200, { ok: true, status })
         return
       }
 
@@ -1550,6 +1588,32 @@ function latestExecution(card: CardState): CardState['executions'][string] | nul
 /** G6：ACP session/prompt resolve 与 JSONL 落盘竞态——等 tailer（轮询 200ms）fold 完最后事件再检测产出标记。 */
 function waitTailer(ms = 600): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+
+/** 工作区文件树（目标契约：活状态现取）。过滤：node_modules/.git/.sessions/.npm-cache/dist/*.db/.DS_Store；限深 5、每目录 100 项。 */
+function listFileTree(dir: string, depth = 0): { name: string; type: 'file' | 'dir'; children?: unknown[] } {
+  const SKIP = new Set(['node_modules', '.git', '.sessions', '.npm-cache', 'dist', 'research', 'docs-archive', 'design-mockups', '.DS_Store'])
+  const name = basename(dir)
+  const out: { name: string; type: 'file' | 'dir'; children?: unknown[] } = { name, type: 'dir', children: [] }
+  if (depth > 5) return { ...out, children: undefined }
+  let entries: string[] = []
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => !SKIP.has(e.name) && !e.name.startsWith('.'))
+      .sort((a, b) => (a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1))
+      .slice(0, 100)
+      .map((e) => e.name)
+  } catch { return { ...out, children: undefined } }
+  for (const n of entries) {
+    const full = join(dir, n)
+    try {
+      const st = statSync(full)
+      if (st.isDirectory()) out.children!.push(listFileTree(full, depth + 1))
+      else out.children!.push({ name: n, type: 'file' })
+    } catch { /* 跳过不可读 */ }
+  }
+  return out
 }
 
 /** 构造一个 WebSocket 文本帧（服务端 → 客户端，未掩码）。 */
