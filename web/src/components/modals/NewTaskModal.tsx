@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { Modal } from '../Modal';
 import { Button } from '../Button';
 import { useUi } from '../../store/ui';
-import { useProjection, cardStatus, latestExecution } from '../../store/projection';
+import { useProjection, cardStatus, latestExecution, isPeakHour } from '../../store/projection';
 import { listProfiles, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL, type Profile } from '../../api/client';
 import { StatusPill } from '../StatusPill';
 
@@ -32,7 +32,9 @@ export function NewTaskModal() {
   const [note, setNote] = useState('');
   const [depIds, setDepIds] = useState<string[]>([]);
   const [calibrate, setCalibrate] = useState(false);
+  const [budget, setBudget] = useState('');
   const [busy, setBusy] = useState(false);
+  const peak = isPeakHour();
   const cards = useProjection((s) => (pid ? s.cards[pid] || {} : {}));
   const depOptions = Object.values(cards).sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0));
   // §2.1 调度门：所选依赖若未完成 → 卡将"等上游"，不自动执行（解锁后自动启动）
@@ -67,6 +69,7 @@ export function NewTaskModal() {
       preset: presetId || undefined,
       deps: depIds.length ? depIds : undefined,
       calibrate: calibrate || undefined,
+      budget: budget.trim() && Number(budget) > 0 ? Number(budget) : undefined,
     });
     setBusy(false);
     if (cardId) {
@@ -79,6 +82,7 @@ export function NewTaskModal() {
       setNote('');
       setDepIds([]);
       setCalibrate(false);
+      setBudget('');
     } else {
       toast('创建失败，见错误横幅');
     }
@@ -165,6 +169,20 @@ export function NewTaskModal() {
         <input type="checkbox" checked={calibrate} onChange={(e) => setCalibrate(e.target.checked)} />
         <span>先校准需求（D1.7）：AI 探索后提案验收标准 → 你确认 → 自动写回 → 再执行</span>
       </label>
+      <div className="field">
+        <label>执行预算 ¥（可选 · opt-in 预算门，超支挂起等批复）</label>
+        <input
+          type="number" min="0" step="0.1"
+          value={budget}
+          onChange={(e) => setBudget(e.target.value)}
+          placeholder="如 1（¥）—— 超支 Waiting{cost}，批准=接受成本 / 拒绝=停止"
+        />
+        {peak ? (
+          <div className="ph-hint2" style={{ marginTop: 4, color: 'var(--yellow)' }}>
+            ⏰ 当前为高峰时段（北京 9-12 / 14-18 点）—— 成本 ×2。非紧急可等空闲时段跑。
+          </div>
+        ) : null}
+      </div>
       <div className="field">
         <label>备注（作为首条执行上下文）</label>
         <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="可选" />

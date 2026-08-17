@@ -80,6 +80,7 @@ export interface CreateCardInput {
   preset?: string; // agent preset id（每任务工具/人格组装）
   deps?: string[]; // 依赖契约：同项目已存在卡的 id（完成本卡前需先完成）
   calibrate?: boolean; // D1.6 时机①：先校准需求（AI 提案验收标准 → 确认 → 写回）再执行
+  budget?: number; // 执行预算 ¥（opt-in，Waiting{cost} 超支挂起）
 }
 export async function createCard(pid: string, input: CreateCardInput): Promise<{ card_id: string; session_id: string }> {
   const res = await fetch(BASE + '/projects/' + encodeURIComponent(pid) + '/cards', {

@@ -116,18 +116,38 @@ export interface Project {
   counts?: [number, number, number, number, number];
 }
 
-// ---------- 执行经济学（§6 规格：定价表为配置项，前端按此估算） ----------
-/** 定价表（每 M token，¥）：输入 2 / 输出 8 / 缓存读 0.2 / 思考 8 */
-export const EST_PRICE = { input: 2.0, output: 8.0, cacheRead: 0.2, reasoning: 8.0 } as const;
+// ---------- 执行经济学（P1.5 修正：DeepSeek V4 峰谷定价，2026-08-17 生效） ----------
+/** 元/百万 tokens；高峰 = 北京时间 9:00-12:00 ∪ 14:00-18:00（其余空闲，空闲=高峰半价） */
+export const PEAK_PRICE = {
+  flash: { input: 3.0, output: 9.0, cacheRead: 0.1, reasoning: 9.0 },
+  pro: { input: 9.0, output: 27.0, cacheRead: 0.3, reasoning: 27.0 },
+} as const;
+export const OFFPEAK_PRICE = {
+  flash: { input: 1.5, output: 4.5, cacheRead: 0.05, reasoning: 4.5 },
+  pro: { input: 4.5, output: 13.5, cacheRead: 0.15, reasoning: 13.5 },
+} as const;
 
-/** 会话级估算成本（¥）；无 usage → null */
-export function estCost(u?: Usage | null): number | null {
+/** 北京时间高峰判定（9:00-12:00 ∪ 14:00-18:00） */
+export function isPeakHour(now = new Date()): boolean {
+  const h = (now.getUTCHours() + 8) % 24;
+  return (h >= 9 && h < 12) || (h >= 14 && h < 18);
+}
+
+/** 按时段取价（默认 flash；model 含 'pro' 取 pro） */
+export function priceOf(model?: string, now = new Date()) {
+  const tier: 'flash' | 'pro' = model && model.toLowerCase().includes('pro') ? 'pro' : 'flash';
+  return isPeakHour(now) ? PEAK_PRICE[tier] : OFFPEAK_PRICE[tier];
+}
+
+/** 会话级估算成本（¥，按当前时段价）；无 usage → null */
+export function estCost(u?: Usage | null, model?: string): number | null {
   if (!u) return null;
+  const p = priceOf(model);
   return (
-    (u.inputTokens || 0) / 1e6 * EST_PRICE.input +
-    (u.outputTokens || 0) / 1e6 * EST_PRICE.output +
-    (u.cacheReadTokens || 0) / 1e6 * EST_PRICE.cacheRead +
-    (u.reasoningTokens || 0) / 1e6 * EST_PRICE.reasoning
+    (u.inputTokens || 0) / 1e6 * p.input +
+    (u.outputTokens || 0) / 1e6 * p.output +
+    (u.cacheReadTokens || 0) / 1e6 * p.cacheRead +
+    (u.reasoningTokens || 0) / 1e6 * p.reasoning
   );
 }
 
