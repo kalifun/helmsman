@@ -94,6 +94,16 @@ export async function createCard(pid: string, input: CreateCardInput): Promise<{
   return (await res.json()) as { card_id: string; session_id: string };
 }
 
+/** POST /api/cards/:cardId/status —— 手动标记状态（设计状态机：拖拽/手动标记完成/失败/待办） */
+export async function markStatus(cardId: string, status: 'Done' | 'Failed' | 'Pending'): Promise<boolean> {
+  const res = await fetch(BASE + '/cards/' + encodeURIComponent(cardId) + '/status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  return res.ok;
+}
+
 /** POST /api/cards/:cardId/executions —— 卡上起新执行代次（fork：from_execution_id 派生）；
  *  新会话 = 新执行，原执行事件流保留供 diff。 */
 export async function forkExecution(cardId: string, fromExecutionId?: string): Promise<{ session_id: string; forked_from?: string | null }> {

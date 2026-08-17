@@ -6,7 +6,7 @@
 // 偏移时间；工具行 call+result 合并（名称/成败/参数详情/耗时）；底部成本块 + 流式尾巴。
 import { useEffect, useRef, useState } from 'react';
 import { useUi, writeHash, openSession, type DrawerTab } from '../store/ui';
-import { listApprovals, decideApproval, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL } from '../api/client';
+import { listApprovals, decideApproval, getMetrics, MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL } from '../api/client';
 import {
   useProjection, effectiveStatus, cardStatus, cardUnmet, waitingLabel, fmtTime,
   latestExecution, executionList,
@@ -50,6 +50,27 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
   const revDeps = Object.values(allCards)
     .filter((c) => c.deps?.includes(cardId))
     .map((c) => ({ id: c.id, title: c.title, status: cardStatus(c) }));
+
+  // 简报快照（metrics.brief_snapshot，按执行 sid）与卡产物（KB 笔记 source_ref=cardId）
+  const [briefRows, setBriefRows] = useState<Record<string, { brief_snapshot: Array<{ id: string; title: string; score?: number }> }>>({});
+  const [kbNotes, setKbNotes] = useState<Array<{ id: string; title: string; trust: string; source_kind: string; source_ref: string; tags?: string[]; content?: string[]; summary?: string }>>([]);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const m = await getMetrics(pid);
+        const map: Record<string, { brief_snapshot: Array<{ id: string; title: string; score?: number }> }> = {};
+        m.forEach((r) => { if (r.task_id) map[r.task_id] = { brief_snapshot: r.brief_snapshot ?? [] }; });
+        if (alive) setBriefRows(map);
+      } catch { /* 快照加载失败不影响 */ }
+      try {
+        const r = await fetch(`/api/kb/notes?project=${encodeURIComponent(pid)}`);
+        const notes = (await r.json()) as Array<{ id: string; title: string; trust: string; source_kind: string; source_ref: string; tags?: string[]; content?: string[]; summary?: string }>;
+        if (alive) setKbNotes(Array.isArray(notes) ? notes : []);
+      } catch { /* 笔记加载失败不影响 */ }
+    })();
+    return () => { alive = false; };
+  }, [pid, cardId]);
 
   const setTab = (t: DrawerTab) => {
     useUi.getState().setRoute({ tab: t });
@@ -144,6 +165,9 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
   const renderPane = () => {
     if (tab === 'comments') return renderComments();
     if (tab === 'brief') {
+      // 简报 = 实际装配快照（metrics.brief_snapshot：执行启动时的 KB 命中清单）
+      const briefRow = briefRows[sid];
+      const hits = briefRow?.brief_snapshot ?? [];
       return (
         <>
           <details className="rulebox" open>
@@ -153,16 +177,49 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
             <div className="rule">冲突时活状态 &gt; 结论 &gt; 知识库；冲突写入简报留痕。</div>
             <div className="rule">简报有预算上限，评论是最高优先级输入，不被裁剪。</div>
           </details>
-          <div className="ph-empty">简报 = 目标契约（brief/assembled · 接口未开）</div>
-          <div className="budget">预算 8k tokens · 已用 —<div className="pipeline">检索：双时态过滤 → 双路召回 → 融合重排 → 阈值过滤 → 进简报</div></div>
+          {hits.length === 0 ? (
+            <div className="ph-empty">该执行无 KB 命中快照（无知识命中或执行早于快照记录）</div>
+          ) : (
+            <div className="brief-hits">
+              {hits.map((h, i) => (
+                <div key={h.id} className="brief-hit">
+                  <span className="brief-idx">{i + 1}</span>
+                  <span className="brief-title">{h.title}</span>
+                  <span className="brief-score">{Math.round((h.score ?? 0) * 100)}%</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="budget">预算 8k tokens · 命中 {hits.length} 条<div className="pipeline">检索：双时态过滤 → 双路召回 → 融合重排 → 阈值过滤 → 进简报</div></div>
         </>
       );
     }
     if (tab === 'artifact') {
+      // 产物 = 卡关联的结论卡（KB 笔记 source_ref=cardId，验收通过后沉淀）
+      const artifacts = kbNotes.filter((n) => n.source_ref === cardId);
       return (
         <>
-          <div className="ph-empty">任务尚未完成，暂无产物</div>
-          <div className="note">产物 = 目标契约（结论卡沉淀 · 接口未开）。下游引用结论卡，而不是聊天记录。</div>
+          {artifacts.length === 0 ? (
+            <>
+              <div className="ph-empty">暂无结论卡 —— 执行完成且验收通过后，结论沉淀为知识库条目（下游引用结论卡，而不是聊天记录）</div>
+              <div className="note">产物 = 知识库条目（结论卡）。可在「知识库」视图查看全部。</div>
+            </>
+          ) : (
+            <div className="artifact-list">
+              {artifacts.map((n) => (
+                <div key={n.id} className="artifact-item">
+                  <div className="artifact-title">{n.title}</div>
+                  <div className="artifact-tags">
+                    <span className="tag">{n.trust}</span>
+                    <span className="tag">{n.source_kind}</span>
+                    {n.tags?.map((t) => <span key={t} className="tag">{t}</span>)}
+                  </div>
+                  {n.content?.length ? <div className="artifact-content">{n.content.slice(0, 6).join('\n')}</div> : null}
+                  {n.summary ? <div className="artifact-summary">{n.summary}</div> : null}
+                </div>
+              ))}
+            </div>
+          )}
         </>
       );
     }

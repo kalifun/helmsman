@@ -49,11 +49,16 @@ export function KanbanView({ pid }: { pid: string }) {
     if (sid) toast('重跑 = 新执行代次（保留原事件流供 diff）');
   };
 
-  const onDrop = (c: CardState, target: string) => {
+  const onDrop = async (c: CardState, target: string) => {
     const st = cardStatus(c);
     if (st === 'Running' || st === 'Waiting') return; // 锁死
-    // 红线 1：拖拽 = 事件；真实契约未开手动标记事件 → 占位标注，不写状态。
-    toast('拖拽改状态 = 事件接口未开（目标契约 · P0）：' + target);
+    if (conn !== 'online') { toast('断连期间禁用控制操作'); return; }
+    // 红线 1：拖拽 = 事件（POST /api/cards/:id/status，手动标记语义）
+    const map: Record<string, 'Done' | 'Failed' | 'Pending'> = { done: 'Done', fail: 'Failed', todo: 'Pending' };
+    const status = map[target];
+    if (!status) return;
+    const ok = await useProjection.getState().markCardStatus(c.id, status);
+    toast(ok ? `已手动标记「${target}」（事件接口 · 状态可审计）` : '标记失败，见错误横幅');
   };
 
   if (loading && !all.length) {

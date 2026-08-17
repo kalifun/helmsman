@@ -266,6 +266,8 @@ interface ProjectionState {
   forkExecution: (cardId: string, fromExecutionId?: string) => Promise<string | null>;
   /** D1.7 需求校准：AI 探索提案验收标准 → 确认 → 写回 criteria；返回校准会话 id */
   calibrateCard: (cardId: string) => Promise<string | null>;
+  /** 手动标记状态（拖拽/手动标记完成/失败/待办） */
+  markCardStatus: (cardId: string, status: 'Done' | 'Failed' | 'Pending') => Promise<boolean>;
   cancelTask: (sid: string) => Promise<boolean>;
   postComment: (sid: string, text: string) => Promise<boolean>;
   /** 显式注册项目（POST /api/projects）→ 刷新项目列表 → 返回注册结果 */
@@ -467,6 +469,20 @@ export const useProjection = create<ProjectionState>((set, get) => ({
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
       return null;
+    }
+  },
+
+  markCardStatus: async (cardId, status) => {
+    try {
+      const ok = await api.markStatus(cardId, status);
+      if (ok) {
+        set((s) => ({ revision: s.revision + 1 }));
+        await get().loadCard(cardId);
+      }
+      return ok;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return false;
     }
   },
 

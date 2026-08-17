@@ -1074,3 +1074,16 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .kb-hit:hover { border-color: var(--blue); }
 .kb-hit-t { font-size: var(--fs-sm); font-weight: 500; color: var(--text); }
 .kb-hit-s { font-size: var(--fs-xs); color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* ---------- 简报/产物页签（TaskDetailDrawer 真实数据） ---------- */
+.brief-hits { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.brief-hit { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface2); font-size: var(--fs-sm); }
+.brief-idx { width: 18px; height: 18px; border-radius: 50%; background: var(--bg-blue); color: var(--blue); font-family: var(--mono); font-size: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.brief-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); }
+.brief-score { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text3); }
+.artifact-list { display: flex; flex-direction: column; gap: 8px; }
+.artifact-item { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; background: var(--surface2); }
+.artifact-title { font-weight: 600; font-size: var(--fs-sm); color: var(--text); margin-bottom: 4px; }
+.artifact-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.artifact-content { font-size: var(--fs-xs); color: var(--text2); white-space: pre-wrap; font-family: var(--mono); line-height: 1.5; max-height: 120px; overflow-y: auto; }
+.artifact-summary { font-size: var(--fs-xs); color: var(--text3); margin-top: 4px; }
