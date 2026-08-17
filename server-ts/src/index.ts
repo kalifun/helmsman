@@ -42,6 +42,7 @@ import { retrieve, deriveQueries, makeNote } from './kb.ts'
 import { assembleBrief, renderBriefPrompt, extractConclusion, type Brief } from './assembly.ts'
 import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
+import { priceOf, estCostFrom } from './pricing.ts'
 
 const PORT = Number(process.env.HELMSMAN_PORT ?? 3081)
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -229,6 +230,7 @@ async function main(): Promise<void> {
     if (!pc) continue
     if (card.deps?.length && !(pc.deps?.length)) pc.deps = card.deps
     if (card.criteria && !pc.criteria) pc.criteria = card.criteria
+    if (card.budget != null && pc.budget == null) pc.budget = card.budget
     for (const ex of storage.loadExecutions(card.id)) {
       const t = pc.executions[ex.id]
       if (t && ex.deps_json && ex.deps_json !== '[]' && !t.deps?.length) t.deps = parseIdArray(ex.deps_json)
@@ -275,6 +277,10 @@ async function main(): Promise<void> {
       // 调度门自动推进：刚完成 → 解锁的下游（无执行代次且 deps 全 Done）自动启动（并行分支，幂等）
       if (before !== 'Done' && t.status === 'Done') {
         void kickStartDownstream(pid)
+      }
+      // P1.5 预算门：每轮结束（turn/end）检查——覆盖 plan 批准后继续执行等所有轮次
+      if (te.event.type === 'turn/end' && cardId && t.waiting === null) {
+        checkBudget(pid, cardId, te.sessionId, nowMs())
       }
     }
   })
@@ -503,6 +509,8 @@ async function main(): Promise<void> {
             })
             return
           }
+          // P1.5 预算门：超支挂起（opt-in；已挂 plan/goal/calibrate 等待的不重复挂）
+          if (checkBudget(projectId, cardId, sid, at)) return
           // 知识沉淀（M4 §3.3）：Done 且 agent 有结论 → agent-generated 入库（裸跑对照组不沉淀，防 KB 污染）
           if (opts.brief !== false) {
             const conclusion = extractConclusion({
@@ -555,11 +563,7 @@ async function main(): Promise<void> {
           }
           // 度量闭环（M4 §5.2）：简报命中清单 + 回合数 + 成本 + 验收 + 实验组落库
           const u = t.usage
-          const cost =
-            (u.inputTokens / 1e6) * 2.0 +
-            (u.outputTokens / 1e6) * 8.0 +
-            (u.cacheReadTokens / 1e6) * 0.2 +
-            (u.reasoningTokens / 1e6) * 8.0
+          const cost = estCostFrom(u, priceOf(t.model))
           const cacheHit = u.inputTokens + u.cacheReadTokens > 0
             ? u.cacheReadTokens / (u.inputTokens + u.cacheReadTokens)
             : 0
@@ -626,6 +630,32 @@ async function main(): Promise<void> {
       if ('Text' in a && a.Text?.text) return a.Text.text.slice(0, 200)
     }
     return null
+  }
+
+  /** Waiting{cost}（P1.5 opt-in 预算门）：卡 budget 超支 → 挂起等批复（批准=接受成本完成 / 拒绝=停止）。
+   *  每轮结束检查；返回是否已挂起。 */
+  function checkBudget(projectId: string, cardId: string, sid: string, at: number): boolean {
+    const p = proj.projects[projectId]
+    const card = p?.cards[cardId]
+    const t = card?.executions[sid]
+    if (!p || !card || !t || !card.budget) return false
+    if (t.waiting) return false
+    const cost = estCostFrom(t.usage, priceOf(t.model))
+    if (cost <= card.budget) return false
+    t.waiting = { kind: 'cost', reason: `执行成本 ¥${cost.toFixed(3)} 超预算 ¥${card.budget}（opt-in 预算门）`, payload: { budget: card.budget, cost } }
+    t.status = 'Running' // 等待批复（批准=接受成本完成 / 拒绝=停止）
+    storage.upsertExecution({
+      id: sid, card_id: cardId, status: 'Running',
+      preset_json: '{}', deps_json: JSON.stringify(card.deps ?? []),
+      forked_from: null, started_at: t.started_at ?? null, finished_at: null, created_at: at,
+    })
+    storage.insertApproval({
+      id: 0, project_id: projectId, execution_id: sid, kind: 'cost',
+      payload: { budget: card.budget, cost },
+      reason: '执行成本超预算，请批复（批准=接受成本完成 / 拒绝=停止）',
+      outcome: null, comment: null, created_at: at, decided_at: null, suspended_at: null,
+    })
+    return true
   }
 
   /** D1.7 需求校准：开校准会话 → agent 探索需求并提案验收标准（可判定断言）→ Waiting{calibrate} 等批复。
@@ -731,6 +761,8 @@ async function main(): Promise<void> {
       })
       return
     }
+    // P1.5 预算门（目标模式多轮同样受控）
+    if (checkBudget(projectId, cardId, sid, at)) return
     // 未产出检查点 → 全部阶段完成：落终态 + 结论沉淀（agent-generated）
     storage.upsertExecution({
       id: sid, card_id: cardId, status: t.status,
@@ -933,6 +965,7 @@ async function main(): Promise<void> {
           milestone: typeof body.milestone === 'string' ? body.milestone : null,
           criteria,
           deps,
+          budget: typeof body.budget === 'number' && body.budget > 0 ? body.budget : null,
           created_at: created,
         }
         ensureCard(proj, pid, meta)
@@ -1416,6 +1449,25 @@ async function main(): Promise<void> {
               created_at: oldEx?.created_at ?? nowMs(),
             })
           }
+        }
+        // Waiting{cost} 决策（P1.5）：批准 = 接受成本，任务完成；拒绝 = 停止（Cancelled）
+        if (appr.kind === 'cost') {
+          const ct = proj.projects[appr.project_id]?.cards[proj.sessionCard[sid]]?.executions[sid]
+          if (ct) {
+            ct.waiting = null
+            ct.status = outcome === 'approved' ? 'Done' : 'Cancelled'
+            if (outcome === 'approved') ct.finished_at = ct.finished_at ?? nowMs()
+            storage.upsertExecution({
+              id: sid, card_id: proj.sessionCard[sid], status: ct.status,
+              preset_json: '{}', deps_json: '[]',
+              forked_from: null, started_at: ct.started_at ?? null, finished_at: ct.finished_at ?? null,
+              created_at: appr.created_at,
+            })
+            if (outcome === 'rejected') void acp.sessionCancel(sid).catch(() => {})
+          }
+          // 任务已结束：不发 sessionPrompt（避免 agent 响应触发 tailer 预算检查重新挂起）
+          send(200, { ok: true, outcome, id })
+          return
         }
         // 目标模式检查点决策（D1.8）：批准 = 继续下一阶段；拒绝 = 带修改意见调整方向（循环驱动）
         if (appr.kind === 'checkpoint') {

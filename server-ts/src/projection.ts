@@ -42,6 +42,8 @@ export interface CardMeta {
   criteria: string | null
   /** 依赖契约（目标契约 taskgraph）：完成本卡前需先完成的卡 id（同项目内） */
   deps: string[]
+  /** 执行预算（¥，opt-in；Waiting{cost} 超支挂起） */
+  budget?: number | null
   created_at: number
 }
 
@@ -82,6 +84,8 @@ export interface CardState {
   deps: string[]
   /** 需求契约：验收标准（可判定断言；D1.7 校准批准后写回） */
   criteria: string | null
+  /** 执行预算（¥，opt-in；Waiting{cost} 超支挂起） */
+  budget?: number | null
   executions: Record<string, TaskState>
   exec_order: string[]
   created_at: number
@@ -177,6 +181,7 @@ export function newCardState(meta: CardMeta): CardState {
     milestone: meta.milestone,
     deps: meta.deps ?? [],
     criteria: meta.criteria ?? null,
+    budget: meta.budget ?? null,
     executions: {},
     exec_order: [],
     created_at: meta.created_at,
