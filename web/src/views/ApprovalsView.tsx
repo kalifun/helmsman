@@ -93,7 +93,7 @@ export function ApprovalsView({ pid }: { pid: string }) {
         ) : null}
         {loading && items.length === 0 && <p className="muted">加载中…</p>}
         {!loading && items.length === 0 && (
-          <p className="muted">队列为空 · 任务停在 Waiting 时出现在这里（含等待原因）</p>
+          <p className="muted">现在没有要批的事项。任务停下等人时会出现在这里。</p>
         )}
         {items.map((a) => (
           <div key={a.id} className="approval">
