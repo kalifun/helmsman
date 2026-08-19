@@ -3,7 +3,11 @@ export function AcceptanceEvidence({ payload }: { payload: Record<string, unknow
   const criteria = typeof payload.criteria === 'string' && payload.criteria.trim() ? payload.criteria : null
   const verify = asVerify(payload.verify)
   const diff = asDiff(payload.diff)
-  if (!criteria && !verify && !diff) return null
+  const worktree = asWorktree(payload.worktree)
+  const mergeErr = payload.merge && typeof payload.merge === 'object'
+    ? String((payload.merge as { error?: unknown }).error ?? '')
+    : ''
+  if (!criteria && !verify && !diff && !worktree && !mergeErr) return null
 
   const verdict = verify?.verified === true
     ? 'pass'
@@ -15,6 +19,16 @@ export function AcceptanceEvidence({ payload }: { payload: Record<string, unknow
 
   return (
     <div className="ev-block">
+      {worktree ? (
+        <div className="ev-section">
+          <div className="ev-head">
+            <span>隔离工作区</span>
+            <span className="tag">{worktree.branch}</span>
+          </div>
+          <div className="muted" style={{ fontFamily: 'var(--mono)', fontSize: 'var(--fs-xs)' }}>{worktree.path}</div>
+        </div>
+      ) : null}
+      {mergeErr ? <div className="ev-err">{mergeErr}</div> : null}
       {verify || criteria ? (
         <div className="ev-section">
           <div className="ev-head">
@@ -73,6 +87,13 @@ function asVerify(v: unknown): {
     outputTail: typeof o.outputTail === 'string' ? o.outputTail : '',
     error: typeof o.error === 'string' ? o.error : undefined,
   }
+}
+
+function asWorktree(v: unknown): { path: string; branch: string } | null {
+  if (!v || typeof v !== 'object') return null
+  const o = v as Record<string, unknown>
+  if (typeof o.branch !== 'string' || typeof o.path !== 'string') return null
+  return { path: o.path, branch: o.branch }
 }
 
 function asDiff(v: unknown): {

@@ -9,6 +9,9 @@ dsh/.sessions/
 dsh/.sessions-archive/
 dsh/.sessions*/
 
+# 任务级 worktree（执行隔离区）
+.helmsman/
+
 # 产品数据
 helmsman.db
 helmsman.db-shm

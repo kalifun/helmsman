@@ -40,6 +40,8 @@ export interface ExecutionSnapshot {
   started_at: number | null
   finished_at: number | null
   created_at: number
+  worktree_path?: string | null
+  worktree_branch?: string | null
 }
 
 const now = (): number => Date.now()
@@ -238,6 +240,11 @@ export class Storage {
     if (!cardCols.some((c) => c.name === 'budget')) {
       this.db.exec(`ALTER TABLE cards ADD COLUMN budget REAL`)
     }
+    const exCols = this.db.prepare(`SELECT name FROM pragma_table_info('executions')`).all() as Array<{ name: string }>
+    if (!exCols.some((c) => c.name === 'worktree_path')) {
+      this.db.exec(`ALTER TABLE executions ADD COLUMN worktree_path TEXT`)
+      this.db.exec(`ALTER TABLE executions ADD COLUMN worktree_branch TEXT`)
+    }
   }
 
   // ---------- 项目 ----------
@@ -352,7 +359,7 @@ export class Storage {
   loadExecutions(cardId: string): ExecutionSnapshot[] {
     return this.db
       .prepare(
-        'SELECT id, card_id, status, preset_json, deps_json, forked_from, started_at, finished_at, created_at FROM executions WHERE card_id = ? ORDER BY created_at',
+        'SELECT id, card_id, status, preset_json, deps_json, forked_from, started_at, finished_at, created_at, worktree_path, worktree_branch FROM executions WHERE card_id = ? ORDER BY created_at',
       )
       .all(cardId)
       .map((r) => rowToExecution(r as Record<string, unknown>))
@@ -361,7 +368,7 @@ export class Storage {
   loadAllExecutions(): ExecutionSnapshot[] {
     return this.db
       .prepare(
-        'SELECT id, card_id, status, preset_json, deps_json, forked_from, started_at, finished_at, created_at FROM executions',
+        'SELECT id, card_id, status, preset_json, deps_json, forked_from, started_at, finished_at, created_at, worktree_path, worktree_branch FROM executions',
       )
       .all()
       .map((r) => rowToExecution(r as Record<string, unknown>))
@@ -370,10 +377,16 @@ export class Storage {
   getExecutionBySession(sessionId: string): ExecutionSnapshot | undefined {
     const row = this.db
       .prepare(
-        'SELECT id, card_id, status, preset_json, deps_json, forked_from, started_at, finished_at, created_at FROM executions WHERE session_id = ?',
+        'SELECT id, card_id, status, preset_json, deps_json, forked_from, started_at, finished_at, created_at, worktree_path, worktree_branch FROM executions WHERE session_id = ?',
       )
       .get(sessionId) as Record<string, unknown> | undefined
     return row ? rowToExecution(row) : undefined
+  }
+
+  setExecutionWorktree(id: string, path: string | null, branch: string | null): void {
+    this.db
+      .prepare('UPDATE executions SET worktree_path = ?, worktree_branch = ?, updated_at = ? WHERE id = ?')
+      .run(path, branch, now(), id)
   }
 
   // ---------- 设置 ----------
@@ -725,6 +738,8 @@ function rowToExecution(r: Record<string, unknown>): ExecutionSnapshot {
     started_at: (r.started_at as number | null) ?? null,
     finished_at: (r.finished_at as number | null) ?? null,
     created_at: r.created_at as number,
+    worktree_path: (r.worktree_path as string | null) ?? null,
+    worktree_branch: (r.worktree_branch as string | null) ?? null,
   }
 }
 

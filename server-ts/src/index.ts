@@ -44,6 +44,7 @@ import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
 import type { VerifyResult } from './verify.ts'
 import { buildAcceptanceEvidence, acceptanceReason } from './evidence.ts'
+import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree, executionCwd } from './worktree.ts'
 import { priceOf, estCostFrom } from './pricing.ts'
 
 const PORT = Number(process.env.HELMSMAN_PORT ?? 3081)
@@ -236,6 +237,7 @@ async function main(): Promise<void> {
     for (const ex of storage.loadExecutions(card.id)) {
       const t = pc.executions[ex.id]
       if (t && ex.deps_json && ex.deps_json !== '[]' && !t.deps?.length) t.deps = parseIdArray(ex.deps_json)
+      if (t && ex.worktree_path && ex.worktree_branch) t.worktree = { path: ex.worktree_path, branch: ex.worktree_branch }
     }
   }
 
@@ -348,6 +350,59 @@ async function main(): Promise<void> {
     }))
   }
 
+  /** 计划/目标批复后继续跑完：隔离区在二次 Done 时才合入（startExecution 的 then 已返回）。 */
+  async function settleWorktreeOnDone(projectId: string, cardId: string, sid: string, at: number): Promise<void> {
+    const p = proj.projects[projectId]
+    const c = p?.cards[cardId]
+    const t = c?.executions[sid]
+    if (!p || !c || !t?.worktree || t.waiting) return
+    if (t.status === 'Cancelled') {
+      discardTaskWorktree(p.path, t.worktree)
+      t.worktree = null
+      storage.setExecutionWorktree(sid, null, null)
+      return
+    }
+    if (t.status !== 'Done') return
+    const hang = t.preset?.setting === 'delivery' && t.preset?.approval !== 'yolo'
+    const runCwd = executionCwd(p.path, t.worktree)
+    let verifyResult: VerifyResult | null = null
+    if (c.criteria) {
+      verifyResult = await runAcceptance(runCwd, c.criteria)
+    }
+    if (hang) {
+      const evidence = buildAcceptanceEvidence({
+        cwd: runCwd,
+        criteria: c.criteria,
+        verify: verifyResult,
+        worktree: t.worktree,
+      })
+      const reason = acceptanceReason(evidence)
+      const payload = evidence as unknown as Record<string, unknown>
+      t.waiting = { kind: 'acceptance', reason, payload }
+      storage.insertApproval({
+        id: 0, project_id: projectId, execution_id: sid, kind: 'acceptance',
+        payload, reason, outcome: null, comment: null, created_at: at, decided_at: null, suspended_at: null,
+      })
+      return
+    }
+    const mr = mergeTaskWorktree({ repo: p.path, worktree: t.worktree, message: `helmsman: ${c.title}` })
+    if (mr.ok) {
+      t.worktree = null
+      storage.setExecutionWorktree(sid, null, null)
+      return
+    }
+    const reason = mr.error ?? '合入主工作区失败'
+    const evidence = buildAcceptanceEvidence({
+      cwd: runCwd, criteria: c.criteria, verify: verifyResult, worktree: t.worktree,
+    })
+    const payload = { ...evidence, merge: mr } as unknown as Record<string, unknown>
+    t.waiting = { kind: 'acceptance', reason, payload }
+    storage.insertApproval({
+      id: 0, project_id: projectId, execution_id: sid, kind: 'acceptance',
+      payload, reason, outcome: null, comment: null, created_at: at, decided_at: null, suspended_at: null,
+    })
+  }
+
   // 执行启动共路：session_new → 注册到卡 → 快照 Pending → 后台跑
   // brief=true 装配知识库简报；false = 裸跑（对照实验 B 组）；presetId 按 dsh preset 组装；presetSnapshot 落快照
   async function startExecution(
@@ -365,11 +420,20 @@ async function main(): Promise<void> {
       const names = unmet.map((d) => p.cards[d]?.title ?? d).join('、')
       throw new HttpError(409, `依赖未完成（等上游）：${names}`)
     }
-    const sid = await acp.sessionNew(p.path, opts.presetId ?? undefined)
+    const wtKey = `${cardId}-${Date.now().toString(36)}`
+    const wt = prepareTaskWorktree(p.path, cardId, wtKey)
+    let sid: string
+    try {
+      sid = await acp.sessionNew(wt?.path ?? p.path, opts.presetId ?? undefined)
+    } catch (e) {
+      if (wt) discardTaskWorktree(p.path, wt)
+      throw e
+    }
     registerSession(proj, sid, projectId, cardId)
     // 依赖契约快照：继承卡 deps（目标契约 taskgraph；图 DAG 边 = 最新执行此字段）
     const t0 = proj.projects[projectId]?.cards[cardId]?.executions[sid]
     if (t0) t0.deps = c.deps ?? []
+    if (t0 && wt) t0.worktree = wt
     // 预设快照进投影（§2.6：执行契约，随任务生命周期延续，前端可见）
     if (opts.presetSnapshot) {
       try {
@@ -390,6 +454,7 @@ async function main(): Promise<void> {
       finished_at: null,
       created_at: created,
     })
+    if (wt) storage.setExecutionWorktree(sid, wt.path, wt.branch)
     // 简报装配（M4 §4）：任务定义 + 知识库命中 → 首条 prompt；裸跑则只有任务定义
     // 前缀分区（§6 路径 2）：项目稳定知识块（human-approved，固定跨任务）→ 缓存命中 + 知识可用
     let brief: Brief = { taskTitle: c.title, taskDescription: c.description, kbHits: [] }
@@ -547,8 +612,9 @@ async function main(): Promise<void> {
           // 验收门（§3.3）：任务 Done 且有验收标准 → 独立执行验收（不信任 agent 自评）
           let verified: boolean | undefined
           let verifyResult: VerifyResult | null = null
+          const runCwd = executionCwd(p.path, t.worktree)
           if (t.status === 'Done' && opts.criteria) {
-            verifyResult = await runAcceptance(p.path, opts.criteria)
+            verifyResult = await runAcceptance(runCwd, opts.criteria)
             verified = verifyResult.verified ?? undefined
             if (verifyResult.error) console.error(`[verify] ${sid}: ${verifyResult.error}`)
           }
@@ -561,9 +627,10 @@ async function main(): Promise<void> {
           }
           if (hangAcceptance) {
             const evidence = buildAcceptanceEvidence({
-              cwd: p.path,
+              cwd: runCwd,
               criteria: opts.criteria ?? null,
               verify: verifyResult,
+              worktree: t.worktree ?? null,
             })
             const reason = acceptanceReason(evidence)
             const payload = evidence as unknown as Record<string, unknown>
@@ -581,6 +648,41 @@ async function main(): Promise<void> {
               decided_at: null,
               suspended_at: null,
             })
+          }
+          // 非交付档 / yolo：Done 后自动合入主工作区。冲突则挂验收，让人处理。
+          if (!hangAcceptance && t.status === 'Done' && t.worktree) {
+            const mr = mergeTaskWorktree({ repo: p.path, worktree: t.worktree, message: `helmsman: ${c.title}` })
+            if (mr.ok) {
+              t.worktree = null
+              storage.setExecutionWorktree(sid, null, null)
+            } else {
+              const reason = mr.error ?? '合入主工作区失败'
+              const evidence = buildAcceptanceEvidence({
+                cwd: runCwd,
+                criteria: opts.criteria ?? null,
+                verify: verifyResult,
+                worktree: t.worktree,
+              })
+              const payload = { ...evidence, merge: mr } as unknown as Record<string, unknown>
+              t.waiting = { kind: 'acceptance', reason, payload }
+              storage.insertApproval({
+                id: 0,
+                project_id: projectId,
+                execution_id: sid,
+                kind: 'acceptance',
+                payload,
+                reason,
+                outcome: null,
+                comment: null,
+                created_at: at,
+                decided_at: null,
+                suspended_at: null,
+              })
+            }
+          } else if (t.status === 'Cancelled' && t.worktree) {
+            discardTaskWorktree(p.path, t.worktree)
+            t.worktree = null
+            storage.setExecutionWorktree(sid, null, null)
           }
           // 度量闭环（M4 §5.2）：简报命中清单 + 回合数 + 成本 + 验收 + 实验组落库
           const u = t.usage
@@ -821,6 +923,7 @@ async function main(): Promise<void> {
       })
       storage.upsertNote(note)
     }
+    await settleWorktreeOnDone(projectId, cardId, sid, at)
   }
 
   class HttpError extends Error {
@@ -1425,6 +1528,23 @@ async function main(): Promise<void> {
         const remember = body.remember === true
         const appr = storage.getApproval(id)
         if (!appr) throw new HttpError(404, `approval ${id} not found`)
+        // 验收批准先合入隔离区；冲突则 409 且保持待批复，避免人点过了文件却没进去。
+        if (appr.kind === 'acceptance' && outcome === 'approved') {
+          const cardId0 = proj.sessionCard[appr.execution_id]
+          const p0 = proj.projects[appr.project_id]
+          const card0 = p0?.cards[cardId0]
+          const ct0 = card0?.executions[appr.execution_id]
+          if (ct0?.worktree && p0) {
+            const mr = mergeTaskWorktree({
+              repo: p0.path,
+              worktree: ct0.worktree,
+              message: `helmsman: ${card0?.title ?? cardId0}`,
+            })
+            if (!mr.ok) throw new HttpError(409, mr.error ?? '合入主工作区失败')
+            ct0.worktree = null
+            storage.setExecutionWorktree(appr.execution_id, null, null)
+          }
+        }
         if (!storage.decideApproval(id, outcome, comment)) throw new HttpError(409, 'already decided')
         // 策略学习（P1 O6）：remember=true → 沉淀策略原子（kind × 卡类型 × outcome 累计）
         if (remember) {
@@ -1483,11 +1603,26 @@ async function main(): Promise<void> {
         }
         // Waiting{cost} 决策（P1.5）：批准 = 接受成本，任务完成；拒绝 = 停止（Cancelled）
         if (appr.kind === 'cost') {
-          const ct = proj.projects[appr.project_id]?.cards[proj.sessionCard[sid]]?.executions[sid]
+          const pCost = proj.projects[appr.project_id]
+          const cardCost = pCost?.cards[proj.sessionCard[sid]]
+          const ct = cardCost?.executions[sid]
           if (ct) {
             ct.waiting = null
             ct.status = outcome === 'approved' ? 'Done' : 'Cancelled'
             if (outcome === 'approved') ct.finished_at = ct.finished_at ?? nowMs()
+            if (ct.worktree && pCost) {
+              if (outcome === 'approved') {
+                const mr = mergeTaskWorktree({ repo: pCost.path, worktree: ct.worktree, message: `helmsman: ${cardCost?.title ?? sid}` })
+                if (mr.ok) {
+                  ct.worktree = null
+                  storage.setExecutionWorktree(sid, null, null)
+                }
+              } else {
+                discardTaskWorktree(pCost.path, ct.worktree)
+                ct.worktree = null
+                storage.setExecutionWorktree(sid, null, null)
+              }
+            }
             storage.upsertExecution({
               id: sid, card_id: proj.sessionCard[sid], status: ct.status,
               preset_json: '{}', deps_json: '[]',
@@ -1500,12 +1635,18 @@ async function main(): Promise<void> {
           send(200, { ok: true, outcome, id })
           return
         }
-        // 便宜验收：批准 = merge 知识后保持 Done；拒绝 = 不入库。任务已结束，不 sessionPrompt（省 token）
+        // 便宜验收：批准 = 已在 decide 前合入隔离区 + merge 知识；拒绝 = 丢掉 worktree、不入库。
         if (appr.kind === 'acceptance') {
           const cardId = proj.sessionCard[sid]
           const card = proj.projects[appr.project_id]?.cards[cardId]
           const ct = card?.executions[sid]
+          const pAcc = proj.projects[appr.project_id]
           if (outcome === 'approved' && card && ct) persistAgentNote(appr.project_id, cardId, card.title, ct)
+          if (outcome === 'rejected' && ct?.worktree && pAcc) {
+            discardTaskWorktree(pAcc.path, ct.worktree)
+            ct.worktree = null
+            storage.setExecutionWorktree(sid, null, null)
+          }
           send(200, { ok: true, outcome, id })
           return
         }
@@ -1522,7 +1663,12 @@ async function main(): Promise<void> {
         const steer = outcome === 'approved'
           ? `[批复] 已批准（${appr.kind}）：${comment || '继续执行'}`
           : `[批复] 已拒绝（${appr.kind}）：${comment || '请调整方案'}`
-        void acp.sessionPrompt(sid, steer).catch((e) => console.error(`[approval] steer ${sid} failed:`, e))
+        void acp.sessionPrompt(sid, steer)
+          .then(async () => {
+            await waitTailer()
+            await settleWorktreeOnDone(appr.project_id, proj.sessionCard[sid], sid, nowMs())
+          })
+          .catch((e) => console.error(`[approval] steer ${sid} failed:`, e))
         send(200, { ok: true, outcome, id })
         return
       }

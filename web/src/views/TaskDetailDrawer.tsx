@@ -282,6 +282,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
           <span>{projects[pid]?.name ?? pid}</span>
           {task?.recovered ? <span className="rec" style={{ fontSize: 10, color: 'var(--text3)', border: '1px solid var(--line2)', borderRadius: 6, padding: '0 5px' }}>恢复</span> : null}
           {unmet.length ? <span style={{ color: 'var(--yellow)' }}>等上游：{unmet.join('、')}</span> : null}
+          {task?.worktree ? <span className="tag" title={task.worktree.path}>隔离 · {task.worktree.branch}</span> : null}
           {task?.waiting ? <span className="waiting-chip">⏸ 待批复：{waitingLabel(task.waiting.kind)}</span> : null}
           {st === 'Running' ? <Button mini variant="ghost" onClick={cancel} disabled={!online}>⏹ 停止</Button> : null}
           <Button mini variant="ghost" onClick={fork} disabled={!online || unmet.length > 0} title={unmet.length ? '等上游：依赖未完成，禁止启动' : '从当前执行派生新执行代次（保留原事件流）'}>⑂ fork</Button>

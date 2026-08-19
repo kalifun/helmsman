@@ -17,6 +17,7 @@ export interface AcceptanceEvidence {
   criteria: string | null
   verify: VerifyResult | null
   diff: WorkspaceDiff
+  worktree?: { path: string; branch: string } | null
 }
 
 const GIT_OPTS = {
@@ -54,12 +55,14 @@ export function buildAcceptanceEvidence(input: {
   cwd: string
   criteria: string | null
   verify: VerifyResult | null
+  worktree?: { path: string; branch: string } | null
 }): AcceptanceEvidence {
   return {
     setting: 'delivery',
     criteria: input.criteria,
     verify: input.verify,
     diff: collectWorkspaceDiff(input.cwd),
+    worktree: input.worktree ?? null,
   }
 }
 

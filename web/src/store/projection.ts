@@ -68,6 +68,8 @@ export interface TaskState {
   preset?: { id: string; name: string; mode: string; setting: string; approval: string; sandbox: string } | null;
   /** 依赖契约快照（继承自卡的 deps；图 DAG 边 = 最新执行此字段） */
   deps?: string[];
+  /** 任务级隔离工作区（git worktree） */
+  worktree?: { path: string; branch: string } | null;
 }
 
 /** Waiting 判别联合（§2.5）：非空 = 任务停在等待批复 */

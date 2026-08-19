@@ -69,6 +69,8 @@ export interface TaskState {
   preset: { id: string; name: string; mode: string; setting: string; approval: string; sandbox: string } | null
   /** 依赖契约快照（继承自卡的 deps；图 DAG 边 = 最新执行此字段） */
   deps?: string[]
+  /** 任务级隔离工作区（git worktree）；非 git 项目为 null */
+  worktree?: { path: string; branch: string } | null
   /** 校准会话标记（D1.7）：需求校准执行不算正常执行代次（调度门补启动时跳过） */
   calib?: boolean
   /** fold 内部状态：当前回合号（Activity.turn 来源，不参与业务语义） */
