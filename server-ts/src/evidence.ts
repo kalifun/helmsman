@@ -1,6 +1,7 @@
 /**
  * 验收证据（便宜验收）：任务 Done 时拍一份工作区快照，给人看「改了什么」。
  * 不跑模型、不读全量 patch，只取 git status / diff --stat（超时 5s）。
+ * 给人看改了什么再点批准。
  */
 import { execFileSync } from 'node:child_process'
 import type { VerifyResult } from './verify.ts'
