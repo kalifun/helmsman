@@ -38,7 +38,7 @@ import {
 } from './projection.ts'
 import { startTailer } from './observe/tail.ts'
 import { recoverStore } from './recovery.ts'
-import { retrieve, deriveQueries, makeNote } from './kb.ts'
+import { retrieve, deriveQueries, makeNote, scoreNoteDebt, debtDemoteWeight, detectCitedEntries } from './kb.ts'
 import { assembleBrief, renderBriefPrompt, extractConclusion, type Brief } from './assembly.ts'
 import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
@@ -372,6 +372,7 @@ async function main(): Promise<void> {
     if (opts.brief !== false) {
       const notes = storage.listNotes(projectId)
       // 稳定块 = 信任级最高的条目（human-approved > agent-generated > unverified），跨任务固定 → 稳定前缀
+      // 债务只降权任务相关检索，不改稳定块人选（前缀必须跨任务字节稳定）。
       const trustRank = { 'human-approved': 3, 'agent-generated': 2, unverified: 1 } as const
       const ranked = [...notes].sort((a, b) => (trustRank[b.trust] ?? 0) - (trustRank[a.trust] ?? 0))
       for (const n of ranked) {
@@ -379,10 +380,17 @@ async function main(): Promise<void> {
           stableNotes.push({ title: n.title, content: n.content })
         }
       }
+      const history = storage.listMetrics(projectId)
+      const demote: Record<string, number> = {}
+      for (const n of notes) {
+        const w = debtDemoteWeight(scoreNoteDebt(n.id, history).status)
+        if (w !== 1) demote[n.id] = w
+      }
       brief = assembleBrief({
         taskTitle: c.title,
         taskDescription: c.description,
         notes,
+        demote,
       })
     }
     const prompt = opts.brief === false
@@ -572,7 +580,17 @@ async function main(): Promise<void> {
             task_id: sid,
             brief_snapshot: brief.kbHits.map((h) => ({ id: h.id, title: h.title, score: h.score })),
             outcome: t.status,
-            cited_entries: [],
+            cited_entries: detectCitedEntries(
+              brief.kbHits.map((h) => ({
+                id: h.id,
+                title: h.title,
+                keywords: storage.getNote(h.id)?.keywords ?? [],
+              })),
+              [
+                ...t.tool_calls.map((c) => c.args),
+                ...t.activities.flatMap((a) => ('Text' in a && a.Text?.text ? [a.Text.text] : [])),
+              ].join('\n'),
+            ),
             turns: t.turns,
             steps: t.steps,
             group_tag: groupTag,
@@ -1490,7 +1508,9 @@ async function main(): Promise<void> {
       // ---------- 知识库（M4） ----------
       if (method === 'GET' && path === '/api/kb/notes') {
         const projectId = url.searchParams.get('project') ?? 'helmsman'
-        send(200, storage.listNotes(projectId))
+        const notes = storage.listNotes(projectId)
+        const history = storage.listMetrics(projectId)
+        send(200, notes.map((n) => ({ ...n, debt: scoreNoteDebt(n.id, history) })))
         return
       }
       if (method === 'GET' && path === '/api/kb/search') {
@@ -1520,6 +1540,14 @@ async function main(): Promise<void> {
         })
         storage.upsertNote(note)
         send(201, note)
+        return
+      }
+      const invalidateMatch = path.match(/^\/api\/kb\/notes\/([^/]+)\/invalidate$/)
+      if (invalidateMatch && method === 'POST') {
+        const id = decodeURIComponent(invalidateMatch[1])
+        if (!storage.getNote(id)) throw new HttpError(404, `note '${id}' not found`)
+        storage.invalidateNote(id, 'user', Date.now())
+        send(200, { ok: true })
         return
       }
       const noteMatch = path.match(/^\/api\/kb\/notes\/([^/]+)$/)

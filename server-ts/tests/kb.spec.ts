@@ -3,7 +3,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { extractConclusion, assembleBrief, renderBriefPrompt } from '../src/assembly.ts'
-import { deriveQueries, retrieve, makeNote } from '../src/kb.ts'
+import { deriveQueries, retrieve, makeNote, detectCitedEntries, scoreNoteDebt, debtDemoteWeight } from '../src/kb.ts'
 import { compareGroup, compareReport } from '../src/experiment.ts'
 import type { MetricRow } from '../src/storage.ts'
 
@@ -52,6 +52,47 @@ describe('检索', () => {
   it('无关查询不命中（低于阈值）', () => {
     const hits = retrieve(notes, deriveQueries('数据库连接池配置'))
     expect(hits.length).toBe(0)
+  })
+
+  it('债务降权后浅笔记排到后面', () => {
+    const hits = retrieve(notes, deriveQueries('修 transfer.go 和 weather'), {
+      demote: { [notes[1].id]: 0.3 },
+    })
+    expect(hits[0].note.title).toContain('transfer.go')
+  })
+})
+
+describe('知识债务', () => {
+  it('工具参数命中文件名锚点 → 记引用', () => {
+    const cited = detectCitedEntries(
+      [{ id: 'n1', title: 'transfer.go 锁竞态', keywords: ['transfer.go'] }],
+      'Read path=/repo/transfer.go offset=40',
+    )
+    expect(cited).toEqual(['n1'])
+  })
+
+  it('仅思考文本不算引用', () => {
+    const cited = detectCitedEntries(
+      [{ id: 'n1', title: 'transfer.go 锁竞态', keywords: ['transfer.go'] }],
+      '',
+    )
+    expect(cited).toEqual([])
+  })
+
+  it('注入两次从未引用 → unused；引用后失败过半 → toxic', () => {
+    const unused = scoreNoteDebt('n1', [
+      { brief_snapshot: [{ id: 'n1' }], cited_entries: [], outcome: 'Done' },
+      { brief_snapshot: [{ id: 'n1' }], cited_entries: [], outcome: 'Done' },
+    ])
+    expect(unused.status).toBe('unused')
+    expect(debtDemoteWeight(unused.status)).toBe(0.4)
+
+    const toxic = scoreNoteDebt('n1', [
+      { brief_snapshot: [{ id: 'n1' }], cited_entries: ['n1'], outcome: 'Failed' },
+      { brief_snapshot: [{ id: 'n1' }], cited_entries: ['n1'], outcome: 'Done', verified: false },
+    ])
+    expect(toxic.status).toBe('toxic')
+    expect(debtDemoteWeight(toxic.status)).toBe(0.3)
   })
 })
 

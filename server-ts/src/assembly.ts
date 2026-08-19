@@ -26,10 +26,11 @@ export function assembleBrief(input: {
   taskDescription: string
   notes: KbNote[]
   maxKbEntries?: number
+  demote?: Record<string, number>
 }): Brief {
   const taskText = `${input.taskTitle}\n${input.taskDescription}`.trim()
   const queries = deriveQueries(taskText)
-  const hits = retrieve(input.notes, queries, { limit: input.maxKbEntries ?? 5, threshold: 0.15 })
+  const hits = retrieve(input.notes, queries, { limit: input.maxKbEntries ?? 5, threshold: 0.15, demote: input.demote })
   return {
     taskTitle: input.taskTitle,
     taskDescription: input.taskDescription,

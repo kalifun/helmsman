@@ -40,7 +40,7 @@ export function deriveQueries(taskText: string): string[] {
 export function retrieve(
   notes: KbNote[],
   queries: string[],
-  opts: { limit?: number; threshold?: number } = {},
+  opts: { limit?: number; threshold?: number; demote?: Record<string, number> } = {},
 ): RetrievalHit[] {
   const limit = opts.limit ?? 5
   const threshold = opts.threshold ?? 0.15
@@ -67,7 +67,8 @@ export function retrieve(
     // 信任：human-approved 1 / agent-generated 0.7 / unverified 0.3
     const trust = note.trust === 'human-approved' ? 1 : note.trust === 'agent-generated' ? 0.7 : 0.3
 
-    const score = 0.4 * titleHit + 0.3 * contentHit + 0.15 * freshness + 0.1 * trust + 0.05 * tagHit
+    const raw = 0.4 * titleHit + 0.3 * contentHit + 0.15 * freshness + 0.1 * trust + 0.05 * tagHit
+    const score = raw * (opts.demote?.[note.id] ?? 1)
     // 必须至少一个词命中标题/内容/标签，否则不入候选（新鲜度/信任是权重不是触发条件）
     if (titleHit === 0 && contentHit === 0 && tagHit === 0) continue
     if (score > 0) scored.push({ note, score })
@@ -81,6 +82,72 @@ export function retrieve(
 function isZhBigram(q: string): boolean {
   if (q.length !== 2) return false
   return /^[\u4e00-\u9fa5]{2}$/.test(q)
+}
+
+export type DebtStatus = 'idle' | 'useful' | 'unused' | 'toxic'
+
+export interface NoteDebt {
+  injected: number
+  cited: number
+  failedWhenCited: number
+  status: DebtStatus
+}
+
+interface DebtMetric {
+  brief_snapshot: Array<{ id: string }>
+  cited_entries: string[]
+  outcome: string
+  verified?: boolean
+}
+
+/** 一条笔记相对历史执行的债务：注入了没用 / 用了还失败。 */
+export function scoreNoteDebt(noteId: string, metrics: DebtMetric[]): NoteDebt {
+  let injected = 0
+  let cited = 0
+  let failedWhenCited = 0
+  for (const m of metrics) {
+    if (m.brief_snapshot.some((h) => h.id === noteId)) injected += 1
+    if (m.cited_entries.includes(noteId)) {
+      cited += 1
+      if (m.outcome !== 'Done' || m.verified === false) failedWhenCited += 1
+    }
+  }
+  let status: DebtStatus = 'idle'
+  if (cited >= 1 && failedWhenCited * 2 >= cited) status = 'toxic'
+  else if (cited >= 1) status = 'useful'
+  else if (injected >= 2) status = 'unused'
+  return { injected, cited, failedWhenCited, status }
+}
+
+/** 任务相关检索的降权：稳定前缀不走这条（前缀必须跨任务字节稳定）。 */
+export function debtDemoteWeight(status: DebtStatus): number {
+  if (status === 'toxic') return 0.3
+  if (status === 'unused') return 0.4
+  return 1
+}
+
+/** 简报条目是否被本轮工具参数 / 产出文本真正用到（规格 §6C 引用锚点）。不计 Reasoning。 */
+export function detectCitedEntries(
+  hits: Array<{ id: string; title: string; keywords?: string[] }>,
+  haystack: string,
+): string[] {
+  const text = haystack.toLowerCase()
+  if (!text.trim()) return []
+  const cited: string[] = []
+  for (const h of hits) {
+    const anchors = collectAnchors(h.title, h.keywords ?? [])
+    if (anchors.some((a) => text.includes(a))) cited.push(h.id)
+  }
+  return cited
+}
+
+function collectAnchors(title: string, keywords: string[]): string[] {
+  const out = new Set<string>()
+  for (const raw of [...keywords, ...deriveQueries(title)]) {
+    const t = raw.trim().toLowerCase()
+    if (t.length >= 4 || /\.\w+$/.test(t) || t.includes('/')) out.add(t)
+  }
+  return [...out]
 }
 
 /** 生成一条 KbNote（任务沉淀入口）。 */
