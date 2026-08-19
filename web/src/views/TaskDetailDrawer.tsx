@@ -15,6 +15,7 @@ import {
 import { StatusPill } from '../components/StatusPill';
 import { TrajectoryView } from './TrajectoryView';
 import { Markdown } from '../components/Markdown';
+import { AcceptanceEvidence } from '../components/AcceptanceEvidence';
 import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 
@@ -344,6 +345,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
                 <div className="appr-plan-body"><Markdown text={task.waiting.payload.plan as string} /></div>
               </details>
             ) : null}
+            {task.waiting.kind === 'acceptance' ? <AcceptanceEvidence payload={task.waiting.payload} /> : null}
           </div>
           <div className="appr-bar-actions">
             <Button mini variant="primary" onClick={() => void decideWaiting('approved')} disabled={!online}>✅ 批准继续</Button>

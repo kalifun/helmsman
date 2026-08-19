@@ -42,6 +42,8 @@ import { retrieve, deriveQueries, makeNote, scoreNoteDebt, debtDemoteWeight, det
 import { assembleBrief, renderBriefPrompt, extractConclusion, type Brief } from './assembly.ts'
 import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
+import type { VerifyResult } from './verify.ts'
+import { buildAcceptanceEvidence, acceptanceReason } from './evidence.ts'
 import { priceOf, estCostFrom } from './pricing.ts'
 
 const PORT = Number(process.env.HELMSMAN_PORT ?? 3081)
@@ -323,6 +325,29 @@ async function main(): Promise<void> {
 
   const acp = engine.acp
 
+  /** Done 后规则提炼入库。交付档挂验收时推迟到人批准，避免未验收就污染 KB。 */
+  function persistAgentNote(projectId: string, cardId: string, title: string, t: TaskState): void {
+    const conclusion = extractConclusion({
+      taskTitle: title,
+      comments: t.comments.map((cm) => ({ who: cm.who, text: cm.text })),
+      activities: t.activities,
+      turns: t.turns,
+      status: t.status,
+    })
+    if (!conclusion) return
+    storage.upsertNote(makeNote({
+      projectId,
+      title: conclusion.title,
+      content: conclusion.content,
+      tags: ['auto'],
+      keywords: conclusion.keywords,
+      summary: conclusion.summary,
+      sourceKind: 'task',
+      sourceRef: cardId,
+      trust: 'agent-generated',
+    }))
+  }
+
   // 执行启动共路：session_new → 注册到卡 → 快照 Pending → 后台跑
   // brief=true 装配知识库简报；false = 裸跑（对照实验 B 组）；presetId 按 dsh preset 组装；presetSnapshot 落快照
   async function startExecution(
@@ -519,49 +544,37 @@ async function main(): Promise<void> {
           }
           // P1.5 预算门：超支挂起（opt-in；已挂 plan/goal/calibrate 等待的不重复挂）
           if (checkBudget(projectId, cardId, sid, at)) return
-          // 知识沉淀（M4 §3.3）：Done 且 agent 有结论 → agent-generated 入库（裸跑对照组不沉淀，防 KB 污染）
-          if (opts.brief !== false) {
-            const conclusion = extractConclusion({
-              taskTitle: c.title,
-              comments: t.comments.map((cm) => ({ who: cm.who, text: cm.text })),
-              activities: t.activities,
-              turns: t.turns,
-              status: t.status,
-            })
-            if (conclusion) {
-              const note = makeNote({
-                projectId,
-                title: conclusion.title,
-                content: conclusion.content,
-                tags: ['auto'],
-                keywords: conclusion.keywords,
-                summary: conclusion.summary,
-                sourceKind: 'task',
-                sourceRef: cardId,
-                trust: 'agent-generated',
-              })
-              storage.upsertNote(note)
-            }
-          }
           // 验收门（§3.3）：任务 Done 且有验收标准 → 独立执行验收（不信任 agent 自评）
           let verified: boolean | undefined
+          let verifyResult: VerifyResult | null = null
           if (t.status === 'Done' && opts.criteria) {
-            const vr = await runAcceptance(p.path, opts.criteria)
-            verified = vr.verified ?? undefined
-            if (vr.error) console.error(`[verify] ${sid}: ${vr.error}`)
+            verifyResult = await runAcceptance(p.path, opts.criteria)
+            verified = verifyResult.verified ?? undefined
+            if (verifyResult.error) console.error(`[verify] ${sid}: ${verifyResult.error}`)
           }
-          // 阶段 2 · delivery 设定：强制验收门 —— Done 但无验收标准 → 挂 Waiting{acceptance}
-          // （§2.2 交付档：强制验收清单缺失阻止；§3 验收门基于外部信号）
-          // 审批姿态：yolo 跳过验收门（尽量连续执行——无标准直接 Done，有标准已在上面自动跑验收命令）
-          if (presetSetting === 'delivery' && t.status === 'Done' && t.waiting === null && !opts.criteria && presetApproval !== 'yolo') {
-            t.waiting = { kind: 'acceptance', reason: '交付设定：任务完成，请验收（通过则 merge 知识，打回则重做）', payload: { setting: 'delivery' } }
+          // 交付档便宜验收：Done 一律挂 Waiting{acceptance}（yolo 除外），卡片上带 git 快照 + 命令结果。
+          // 有标准也挂 —— 人看证据再一键过，不因命令绿了就静默 merge。
+          const hangAcceptance = presetSetting === 'delivery' && t.status === 'Done' && t.waiting === null && presetApproval !== 'yolo'
+          // 知识沉淀（M4 §3.3）：裸跑不沉淀；交付档等人批准后再入库
+          if (opts.brief !== false && !hangAcceptance) {
+            persistAgentNote(projectId, cardId, c.title, t)
+          }
+          if (hangAcceptance) {
+            const evidence = buildAcceptanceEvidence({
+              cwd: p.path,
+              criteria: opts.criteria ?? null,
+              verify: verifyResult,
+            })
+            const reason = acceptanceReason(evidence)
+            const payload = evidence as unknown as Record<string, unknown>
+            t.waiting = { kind: 'acceptance', reason, payload }
             storage.insertApproval({
               id: 0,
               project_id: projectId,
               execution_id: sid,
               kind: 'acceptance',
-              payload: { setting: 'delivery' },
-              reason: '交付设定：任务完成，请验收',
+              payload,
+              reason,
               outcome: null,
               comment: null,
               created_at: at,
@@ -1484,6 +1497,15 @@ async function main(): Promise<void> {
             if (outcome === 'rejected') void acp.sessionCancel(sid).catch(() => {})
           }
           // 任务已结束：不发 sessionPrompt（避免 agent 响应触发 tailer 预算检查重新挂起）
+          send(200, { ok: true, outcome, id })
+          return
+        }
+        // 便宜验收：批准 = merge 知识后保持 Done；拒绝 = 不入库。任务已结束，不 sessionPrompt（省 token）
+        if (appr.kind === 'acceptance') {
+          const cardId = proj.sessionCard[sid]
+          const card = proj.projects[appr.project_id]?.cards[cardId]
+          const ct = card?.executions[sid]
+          if (outcome === 'approved' && card && ct) persistAgentNote(appr.project_id, cardId, card.title, ct)
           send(200, { ok: true, outcome, id })
           return
         }

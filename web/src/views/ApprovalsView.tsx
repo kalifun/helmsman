@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
 import { listApprovals, decideApproval, listPolicies, deletePolicy, listSuspendedApprovals, resumeApproval, resumeAllApprovals, type ApprovalItem, type PolicyRow } from '../api/client';
 import { Markdown } from '../components/Markdown';
+import { AcceptanceEvidence } from '../components/AcceptanceEvidence';
 
 const KIND_LABEL: Record<string, string> = {
   plan: '计划确认',
@@ -108,8 +109,9 @@ export function ApprovalsView({ pid }: { pid: string }) {
               </div>
             ) : null}
             <div className="appr-reason">{a.reason || '（无原因说明）'}</div>
+            {a.kind === 'acceptance' ? <AcceptanceEvidence payload={a.payload} /> : null}
             <div className="appr-payload">
-              {Object.entries(a.payload).map(([k, v]) => {
+              {a.kind === 'acceptance' ? null : Object.entries(a.payload).map(([k, v]) => {
                 if (k === 'plan' && typeof v === 'string' && v.length > 40) {
                   return (
                     <details key={k} className="appr-plan" open>
