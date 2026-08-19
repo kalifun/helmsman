@@ -378,6 +378,39 @@ export function getMetrics(pid: string): Promise<MetricRow[]> {
   return req<MetricRow[]>('/metrics?project=' + encodeURIComponent(pid));
 }
 
+export type DebtStatus = 'idle' | 'useful' | 'unused' | 'toxic';
+
+export interface NoteDebt {
+  injected: number;
+  cited: number;
+  failedWhenCited: number;
+  status: DebtStatus;
+}
+
+export interface KbNoteRow {
+  id: string;
+  project_id: string;
+  title: string;
+  content: string[];
+  tags: string[];
+  keywords: string[];
+  summary: string;
+  source: { kind: string; ref: string };
+  validFrom: number;
+  validUntil: number | null;
+  trust: 'human-approved' | 'agent-generated' | 'unverified';
+  debt?: NoteDebt;
+}
+
+export function listKbNotes(pid: string): Promise<KbNoteRow[]> {
+  return req<KbNoteRow[]>('/kb/notes?project=' + encodeURIComponent(pid));
+}
+
+export async function invalidateKbNote(id: string): Promise<boolean> {
+  const res = await fetch(BASE + '/kb/notes/' + encodeURIComponent(id) + '/invalidate', { method: 'POST' });
+  return res.ok;
+}
+
 // ---------- 简单会话（A 组：两级制松入口） ----------
 
 export interface ChatSummary {
