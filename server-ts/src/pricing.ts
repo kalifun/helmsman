@@ -2,6 +2,7 @@
  * 执行经济学定价（P1.5 修正）：DeepSeek V4 峰谷定价（2026-08-17 生效）。
  * 高峰时段 = 北京时间 9:00–12:00 ∪ 14:00–18:00（央视财经确认），其余空闲，空闲 = 高峰半价。
  * 元/百万 tokens。reasoning 未单独公布 → 按输出价近似。
+ * dogfood：任务级 worktree 并行探测（pricing）。
  */
 export interface PriceTable {
   input: number      // 输入（缓存未命中）
