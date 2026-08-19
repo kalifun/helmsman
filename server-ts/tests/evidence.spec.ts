@@ -70,6 +70,12 @@ describe('工作区快照（便宜验收）', () => {
       verify: { verified: false, exitCode: 1, durationMs: 10, outputTail: 'fail' },
       diff: { dirty: false, files: [], stat: '' },
     })).toContain('未通过')
+    expect(acceptanceReason({
+      setting: 'delivery',
+      criteria: 'true',
+      verify: { verified: null, exitCode: null, durationMs: 1000, outputTail: '', error: 'timeout after 1000ms' },
+      diff: { dirty: false, files: [], stat: '' },
+    })).toContain('未能执行')
   })
 
   it('buildAcceptanceEvidence 带上 criteria + verify + diff', () => {
