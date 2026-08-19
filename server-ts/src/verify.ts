@@ -2,6 +2,7 @@
  * 验收执行（§3.3 验收门 / §6C 实验 A 的"独立验证器"）：
  * 任务 Done 后，在项目目录跑验收命令（可判定断言），退出码 0 = 通过。
  * 验收独立于 agent 自评 —— "agent 说做完了"不等于"验收通过"（Cline #8354 反面）。
+ * dogfood：任务级 worktree 并行探测（verify）。
  */
 import { exec } from 'node:child_process'
 
