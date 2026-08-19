@@ -36,7 +36,10 @@ export function NewTaskModal() {
   const [busy, setBusy] = useState(false);
   const peak = isPeakHour();
   const cards = useProjection((s) => (pid ? s.cards[pid] || {} : {}));
-  const depOptions = Object.values(cards).sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0));
+  // 已完成的卡不挡启动，勾了没有调度意义，不进列表。
+  const depOptions = Object.values(cards)
+    .filter((c) => cardStatus(c) !== 'Done')
+    .sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0));
   // §2.1 调度门：所选依赖若未完成 → 卡将"等上游"，不自动执行（解锁后自动启动）
   const hasUnmetDep = depIds.some((d) => {
     const dc = cards[d];
@@ -133,24 +136,40 @@ export function NewTaskModal() {
         <div className="ph-hint2" style={{ marginTop: 4 }}>预设 = 协作方式 × 执行设定 × 审批姿态 · 沙箱（悬停选项看明细；执行启动时快照，不改）。</div>
       </div>
       <div className="field">
-        <label>依赖（可选 · 完成本卡前需先完成；图上画边）</label>
+        <label>上游（可选 · 谁先做完，这张卡才开跑）</label>
         {depOptions.length === 0 ? (
-          <div className="ph-hint2" style={{ padding: '6px 0' }}>项目还没有卡 —— 先建无依赖的卡，图会按依赖分层。</div>
+          <div className="ph-hint2" style={{ padding: '6px 0' }}>
+            {Object.keys(cards).length === 0
+              ? '项目还没有卡 —— 先建一张，后面的卡才能等它。'
+              : '现有卡都已完成，没有要等的上游。'}
+          </div>
         ) : (
-          <div style={{ maxHeight: 130, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 4 }}>
+          <div className="dep-pick">
             {depOptions.map((c) => {
               const st = cardStatus(c);
               const checked = depIds.includes(c.id);
+              const name = (c.title || '').trim() || '未命名';
+              const kind = KINDS.find((k) => k.value === c.kind)?.label ?? c.kind ?? '任务';
+              const blurb = (c.description || '').replace(/\s+/g, ' ').trim();
               return (
-                <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 6px', fontSize: 12.5, cursor: 'pointer', borderRadius: 4 }}>
+                <div
+                  key={c.id}
+                  className={'dep-pick-row' + (checked ? ' on' : '')}
+                  onClick={() => setDepIds((prev) => (checked ? prev.filter((d) => d !== c.id) : [...prev, c.id]))}
+                >
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={(e) => setDepIds((prev) => (e.target.checked ? [...prev, c.id] : prev.filter((d) => d !== c.id)))}
+                    readOnly
+                    tabIndex={-1}
                   />
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
+                  <span className="dep-pick-text">
+                    {name}
+                    {c.milestone ? <span className="milestone-chip">{c.milestone}</span> : null}
+                    <span className="dep-pick-meta"> · {kind}{blurb ? ` · ${blurb}` : ''}</span>
+                  </span>
                   <StatusPill status={st as never} />
-                </label>
+                </div>
               );
             })}
           </div>
