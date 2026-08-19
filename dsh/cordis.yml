@@ -118,7 +118,7 @@
 
 # 每项目沙箱：workspace-write —— 每个任务（会话）的写根 = 会话 cwd（用户选择的项目目录），
 # 只能写自己的项目目录 + /tmp，不能越界写其他项目或系统任意位置（spec：任务以项目为隔离单位）。
-# 公开版（0.1.0-rc.6）：fs-sandbox 直接替代 fs-local（不再并存），配套 ctx.sandboxPolicy。
+# 公开版（0.1.0-rc.7）：fs-sandbox 直接替代 fs-local（不再并存），配套 ctx.sandboxPolicy。
 - id: sandbox-policy
   name: '@deepseek-ai/dsh-sandbox-policy'
   config:

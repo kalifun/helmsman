@@ -1,8 +1,8 @@
 diff --git a/lib/index.js b/lib/index.js
-index 26cf4df03a7dd7f7933a151cd22c6b4082ecd912..045580421d4359375ea4aa2fa028e697d7616571 100644
+index d7ca62d..cff2a58 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -406,10 +406,32 @@ function apply(ctx, config) {
+@@ -404,10 +404,32 @@ function apply(ctx, config) {
  				assertOpen();
  				validateSessionParams(params);
  				const sessionId = SessionId(randomUUID());
