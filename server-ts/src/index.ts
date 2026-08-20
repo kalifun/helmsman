@@ -38,8 +38,8 @@ import {
 } from './projection.ts'
 import { startTailer } from './observe/tail.ts'
 import { recoverStore } from './recovery.ts'
-import { retrieve, deriveQueries, makeNote, scoreNoteDebt, debtDemoteWeight, detectCitedEntries } from './kb.ts'
-import { assembleBrief, renderBriefPrompt, extractConclusion, type Brief } from './assembly.ts'
+import { retrieve, deriveQueries, makeNote, scoreNoteDebt, debtDemoteWeight, detectCitedEntries, withStableTag } from './kb.ts'
+import { assembleBrief, renderBriefPrompt, selectStableNotes, extractConclusion, type Brief } from './assembly.ts'
 import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
 import type { VerifyResult } from './verify.ts'
@@ -456,20 +456,12 @@ async function main(): Promise<void> {
     })
     if (wt) storage.setExecutionWorktree(sid, wt.path, wt.branch)
     // 简报装配（M4 §4）：任务定义 + 知识库命中 → 首条 prompt；裸跑则只有任务定义
-    // 前缀分区（§6 路径 2）：项目稳定知识块（human-approved，固定跨任务）→ 缓存命中 + 知识可用
+    // 稳定块只收用户钉的 `stable` 标签，不按信任级自动塞旧笔记。
     let brief: Brief = { taskTitle: c.title, taskDescription: c.description, kbHits: [] }
-    const stableNotes: Array<{ title: string; content: string[] }> = []
+    let stableNotes: Array<{ title: string; content: string[] }> = []
     if (opts.brief !== false) {
       const notes = storage.listNotes(projectId)
-      // 稳定块 = 信任级最高的条目（human-approved > agent-generated > unverified），跨任务固定 → 稳定前缀
-      // 债务只降权任务相关检索，不改稳定块人选（前缀必须跨任务字节稳定）。
-      const trustRank = { 'human-approved': 3, 'agent-generated': 2, unverified: 1 } as const
-      const ranked = [...notes].sort((a, b) => (trustRank[b.trust] ?? 0) - (trustRank[a.trust] ?? 0))
-      for (const n of ranked) {
-        if (stableNotes.length < 5) {
-          stableNotes.push({ title: n.title, content: n.content })
-        }
-      }
+      stableNotes = selectStableNotes(notes)
       const history = storage.listMetrics(projectId)
       const demote: Record<string, number> = {}
       for (const n of notes) {
@@ -1716,6 +1708,18 @@ async function main(): Promise<void> {
         if (!storage.getNote(id)) throw new HttpError(404, `note '${id}' not found`)
         storage.invalidateNote(id, 'user', Date.now())
         send(200, { ok: true })
+        return
+      }
+      const pinMatch = path.match(/^\/api\/kb\/notes\/([^/]+)\/stable$/)
+      if (pinMatch && method === 'POST') {
+        const id = decodeURIComponent(pinMatch[1])
+        const note = storage.getNote(id)
+        if (!note) throw new HttpError(404, `note '${id}' not found`)
+        const body = await readBody()
+        const pinned = body.pinned !== false
+        note.tags = withStableTag(note.tags, pinned)
+        storage.upsertNote(note)
+        send(200, storage.getNote(id))
         return
       }
       const noteMatch = path.match(/^\/api\/kb\/notes\/([^/]+)$/)

@@ -411,6 +411,17 @@ export async function invalidateKbNote(id: string): Promise<boolean> {
   return res.ok;
 }
 
+/** POST /api/kb/notes/:id/stable —— 钉进 / 移出跨任务稳定前缀 */
+export async function setKbNoteStable(id: string, pinned: boolean): Promise<KbNoteRow | null> {
+  const res = await fetch(BASE + '/kb/notes/' + encodeURIComponent(id) + '/stable', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pinned }),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as KbNoteRow;
+}
+
 // ---------- 简单会话（A 组：两级制松入口） ----------
 
 export interface ChatSummary {

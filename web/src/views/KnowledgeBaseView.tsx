@@ -2,7 +2,11 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
 import { Button } from '../components/Button';
-import { invalidateKbNote, listKbNotes, type DebtStatus, type KbNoteRow } from '../api/client';
+import { invalidateKbNote, listKbNotes, setKbNoteStable, type DebtStatus, type KbNoteRow } from '../api/client';
+
+function isPinned(n: KbNoteRow): boolean {
+  return n.tags.some((t) => t.toLowerCase() === 'stable');
+}
 
 const TRUST_LABEL: Record<KbNoteRow['trust'], string> = {
   'human-approved': '人工确认',
@@ -76,6 +80,19 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
     }
   };
 
+  const pin = async (n: KbNoteRow, pinned: boolean) => {
+    setBusy(true);
+    try {
+      const updated = await setKbNoteStable(n.id, pinned);
+      if (updated) {
+        setSelected({ ...n, ...updated, debt: n.debt });
+        await load(q);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div id="kbview">
       <div className="kb-side">
@@ -95,7 +112,7 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
             <div className="empty-state">
               <Icon name="kb" />
               <div className="t">{filter === 'valid' ? '知识库为空' : '没有这类笔记'}</div>
-              <div className="d">{filter === 'valid' ? '任务完成时，结论会自动沉淀到这里' : '债务要等笔记被装配过几次才出现'}</div>
+              <div className="d">{filter === 'valid' ? '任务完成时，结论会自动沉淀到这里。要点进每张卡开头，打开笔记点「钉到稳定前缀」。' : '债务要等笔记被装配过几次才出现'}</div>
             </div>
           )}
           {visible.map((n) => (
@@ -103,6 +120,7 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
               <div className="kb-item-title">{n.title}</div>
               <div className="kb-item-meta">
                 <span className={'trust trust-' + n.trust}>{TRUST_LABEL[n.trust]}</span>
+                {isPinned(n) && <span className="trust trust-human-approved">稳定前缀</span>}
                 {n.debt && n.debt.status !== 'idle' && (
                   <span className={'trust trust-' + (n.debt.status === 'toxic' ? 'unverified' : n.debt.status === 'unused' ? 'agent-generated' : 'human-approved')}>
                     {DEBT_LABEL[n.debt.status]}
@@ -121,6 +139,7 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
             <h3>{selected.title}</h3>
             <div className="note-meta">
               <span className={'trust trust-' + selected.trust}>{TRUST_LABEL[selected.trust]}</span>
+              {isPinned(selected) && <span className="trust trust-human-approved">稳定前缀</span>}
               <span className="muted">来源：{selected.source.kind} · {new Date(selected.validFrom).toLocaleString()}</span>
             </div>
             {selected.debt && (
@@ -136,7 +155,10 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
               <div className="note-keywords">{selected.keywords.map((k) => <span key={k} className="tag">{k}</span>)}</div>
             )}
             {selected.validUntil === null && (
-              <div style={{ marginTop: 18 }}>
+              <div style={{ marginTop: 18, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button variant="ghost" mini disabled={busy} onClick={() => void pin(selected, !isPinned(selected))}>
+                  {isPinned(selected) ? '取消稳定前缀' : '钉到稳定前缀'}
+                </Button>
                 <Button variant="plain" mini disabled={busy} onClick={() => void mute(selected.id)}>
                   不再装配
                 </Button>

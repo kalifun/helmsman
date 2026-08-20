@@ -2,8 +2,8 @@
  * M4 知识库测试：沉淀质量门槛 + 检索 + 实验聚合。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { extractConclusion, assembleBrief, renderBriefPrompt } from '../src/assembly.ts'
-import { deriveQueries, retrieve, makeNote, detectCitedEntries, scoreNoteDebt, debtDemoteWeight } from '../src/kb.ts'
+import { extractConclusion, assembleBrief, renderBriefPrompt, selectStableNotes } from '../src/assembly.ts'
+import { deriveQueries, retrieve, makeNote, detectCitedEntries, scoreNoteDebt, debtDemoteWeight, withStableTag } from '../src/kb.ts'
 import { compareGroup, compareReport } from '../src/experiment.ts'
 import type { MetricRow } from '../src/storage.ts'
 
@@ -60,6 +60,13 @@ describe('检索', () => {
     })
     expect(hits[0].note.title).toContain('transfer.go')
   })
+
+  it('unused / toxic 权重为 0 时不再命中', () => {
+    const hits = retrieve(notes, deriveQueries('修复 transfer.go 锁竞态'), {
+      demote: { [notes[0].id]: 0 },
+    })
+    expect(hits.every((h) => h.note.id !== notes[0].id)).toBe(true)
+  })
 })
 
 describe('知识债务', () => {
@@ -85,14 +92,14 @@ describe('知识债务', () => {
       { brief_snapshot: [{ id: 'n1' }], cited_entries: [], outcome: 'Done' },
     ])
     expect(unused.status).toBe('unused')
-    expect(debtDemoteWeight(unused.status)).toBe(0.4)
+    expect(debtDemoteWeight(unused.status)).toBe(0)
 
     const toxic = scoreNoteDebt('n1', [
       { brief_snapshot: [{ id: 'n1' }], cited_entries: ['n1'], outcome: 'Failed' },
       { brief_snapshot: [{ id: 'n1' }], cited_entries: ['n1'], outcome: 'Done', verified: false },
     ])
     expect(toxic.status).toBe('toxic')
-    expect(debtDemoteWeight(toxic.status)).toBe(0.3)
+    expect(debtDemoteWeight(toxic.status)).toBe(0)
   })
 })
 
@@ -104,6 +111,16 @@ describe('装配', () => {
     const prompt = renderBriefPrompt(brief, [{ title: 'transfer.go 锁竞态', content: ['按资源 ID 排序加锁'] }])
     expect(prompt).toContain('项目稳定知识')
     expect(prompt).toContain('任务：修 transfer.go')
+  })
+
+  it('稳定块只收 #stable，不按信任级自动塞', () => {
+    const approved = makeNote({ projectId: 'p', title: '旧实验结论', content: ['不该进每张卡'], tags: [], keywords: [], summary: '', sourceKind: 'human', sourceRef: 'x', trust: 'human-approved' })
+    const pinned = makeNote({ projectId: 'p', title: '项目约定', content: ['用 pnpm'], tags: ['stable'], keywords: [], summary: '', sourceKind: 'human', sourceRef: 'y', trust: 'unverified' })
+    expect(selectStableNotes([approved, pinned])).toEqual([{ title: '项目约定', content: ['用 pnpm'] }])
+    expect(selectStableNotes([approved])).toEqual([])
+    expect(selectStableNotes([{ ...approved, tags: withStableTag(approved.tags, true) }])).toEqual([
+      { title: '旧实验结论', content: ['不该进每张卡'] },
+    ])
   })
 
   it('前缀分区：同项目两任务稳定前缀一致', () => {
@@ -154,16 +171,16 @@ describe('ACP 预设透传（P0 预设落地）', () => {
     // 用 Object.create 绕过构造函数（避免真实 spawn 子进程）
     const { AcpClient } = await import('../src/acp-client.ts')
     const callSpy = vi.fn(async () => ({ sessionId: 's1' }))
-    const acp = Object.create(AcpClient.prototype) as AcpClient
+    const acp = Object.create(AcpClient.prototype) as InstanceType<typeof AcpClient>
     ;(acp as unknown as { call: (m: string, p: unknown) => Promise<unknown> }).call = callSpy
     ;(acp as unknown as { nextId: number }).nextId = 1
     await acp.sessionNew('/tmp/x', 'code-concise')
-    const [, params] = callSpy.mock.calls[0] as [string, Record<string, unknown>]
+    const [, params] = callSpy.mock.calls[0] as unknown as [string, Record<string, unknown>]
     expect(params).toMatchObject({ _meta: { agentPreset: 'code-concise' } })
     // 无 preset 时不带 _meta
     callSpy.mockClear()
     await acp.sessionNew('/tmp/x')
-    const [, params2] = callSpy.mock.calls[0] as [string, Record<string, unknown>]
+    const [, params2] = callSpy.mock.calls[0] as unknown as [string, Record<string, unknown>]
     expect(params2._meta).toBeUndefined()
   })
 })

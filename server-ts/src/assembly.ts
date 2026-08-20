@@ -5,7 +5,7 @@
  * P1：LLM 提炼（经引擎 ACP）、向量检索、矛盾检测（强模型）。
  */
 import type { KbNote } from './storage.ts'
-import { retrieve, deriveQueries } from './kb.ts'
+import { retrieve, deriveQueries, isStableTagged } from './kb.ts'
 
 export interface BriefEntry {
   id: string
@@ -41,6 +41,26 @@ export function assembleBrief(input: {
       trust: h.note.trust,
     })),
   }
+}
+
+const TRUST_RANK = { 'human-approved': 3, 'agent-generated': 2, unverified: 1 } as const
+
+/** 稳定前缀只收用户钉过的笔记（标签 `stable`）。
+ * 不按信任级自动塞 top-N：人工确认过的旧实验结论会污染每张卡，且改人选会断 KV 缓存。
+ */
+export function selectStableNotes(
+  notes: KbNote[],
+  limit = 5,
+): Array<{ title: string; content: string[] }> {
+  return notes
+    .filter((n) => isStableTagged(n.tags))
+    .sort((a, b) => {
+      const tr = (TRUST_RANK[b.trust] ?? 0) - (TRUST_RANK[a.trust] ?? 0)
+      if (tr !== 0) return tr
+      return a.id.localeCompare(b.id)
+    })
+    .slice(0, limit)
+    .map((n) => ({ title: n.title, content: n.content }))
 }
 
 /** 渲染为发给引擎的 prompt 文本（简报 → 首条消息）。

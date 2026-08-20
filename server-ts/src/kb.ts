@@ -5,6 +5,17 @@
  */
 import type { KbNote } from './storage.ts'
 
+export const STABLE_TAG = 'stable'
+
+export function isStableTagged(tags: string[]): boolean {
+  return tags.some((t) => t.toLowerCase() === STABLE_TAG)
+}
+
+export function withStableTag(tags: string[], pinned: boolean): string[] {
+  const rest = tags.filter((t) => t.toLowerCase() !== STABLE_TAG)
+  return pinned ? [...rest, STABLE_TAG] : rest
+}
+
 export interface RetrievalHit {
   note: KbNote
   score: number
@@ -119,10 +130,9 @@ export function scoreNoteDebt(noteId: string, metrics: DebtMetric[]): NoteDebt {
   return { injected, cited, failedWhenCited, status }
 }
 
-/** 任务相关检索的降权：稳定前缀不走这条（前缀必须跨任务字节稳定）。 */
+/** 任务相关检索：unused / toxic 不再装配。稳定前缀只收用户钉的 `stable` 标签，不走这条。 */
 export function debtDemoteWeight(status: DebtStatus): number {
-  if (status === 'toxic') return 0.3
-  if (status === 'unused') return 0.4
+  if (status === 'toxic' || status === 'unused') return 0
   return 1
 }
 
