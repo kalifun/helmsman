@@ -64,27 +64,31 @@ export function KanbanView({ pid }: { pid: string }) {
 
   if (loading && !all.length) {
     return (
-      <div id="kanban">
-        {COLS.map((c) => (
-          <div key={c.key} className="kcol">
-            <div className="kcol-head"><span className="dot {c.key}" />{c.label}<span className="count">—</span></div>
-            <div className="kcol-body">
-              <Skeleton height={96} style={{ marginBottom: 8 }} />
-              <Skeleton height={96} style={{ marginBottom: 8 }} />
+      <div className="kanban-wrap">
+        <div id="kanban">
+          {COLS.map((c) => (
+            <div key={c.key} className="kcol">
+              <div className="kcol-head"><span className={'dot ' + c.key} />{c.label}<span className="count">—</span></div>
+              <div className="kcol-body">
+                <Skeleton height={96} style={{ marginBottom: 8 }} />
+                <Skeleton height={96} style={{ marginBottom: 8 }} />
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     );
   }
 
-  const milestones = [...new Set(all.map((c) => c.milestone).filter((m): m is string => !!m))];
+  const milestones = [...new Set(all.map((c) => c.milestone).filter((m): m is string => !!m))].sort((a, b) => a.localeCompare(b, 'zh'));
 
   return (
-    <div id="kanban">
+    <div className="kanban-wrap">
       {milestones.length > 0 ? (
-        <div className="kbar">
+        <div className="kbar" role="tablist" aria-label="按里程碑筛选">
+          <span className="kbar-label">里程碑</span>
           <button
+            type="button"
             className={'kbar-chip' + (milestoneFilter === null ? ' active' : '')}
             onClick={() => setMilestoneFilter(null)}
           >全部</button>
@@ -93,26 +97,27 @@ export function KanbanView({ pid }: { pid: string }) {
             const total = all.filter((c) => c.milestone === m).length;
             return (
               <button
+                type="button"
                 key={m}
                 className={'kbar-chip' + (milestoneFilter === m ? ' active' : '')}
                 onClick={() => setMilestoneFilter(milestoneFilter === m ? null : m)}
                 title={`${m}：${done}/${total} 完成`}
               >
-                {m} <span className="kbar-count">{done}/{total}</span>
+                {m}
+                <span className="kbar-count">{done}/{total}</span>
               </button>
             );
           })}
         </div>
       ) : null}
+      <div id="kanban">
       {COLS.map((col) => {
         const items = all.filter((c) => {
           if (milestoneFilter && c.milestone !== milestoneFilter) return false;
           const st = cardStatus(c);
           return col.key === 'Running' ? st === 'Running' || st === 'Waiting' : st === col.key;
         });
-        const headCount = col.key === 'Running'
-          ? all.filter((c) => ['Running', 'Waiting'].includes(cardStatus(c))).length
-          : items.length;
+        const headCount = items.length;
         return (
           <div
             key={col.key}
@@ -198,6 +203,7 @@ export function KanbanView({ pid }: { pid: string }) {
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
