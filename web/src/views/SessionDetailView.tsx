@@ -2,24 +2,23 @@
 //   聊天视图（消息气泡 + 思考折叠 + 工具调用 + 流式 + 输入框=评论控制通道）
 //   轨迹视图（复用 TrajectoryView 时间线）。
 // 数据：comments（user 消息）+ activities（agent 活动流）+ usage（成本）。
+// 思考/工具：按回合归组进 Thinking 块（Beautiful UI 移植）—— 推理+工具同回合合并展示。
 import { useEffect, useRef, useState } from 'react';
 import { useUi, writeHash } from '../store/ui';
 import { useProjection, effectiveStatus, waitingLabel, type TaskState } from '../store/projection';
 import { Button } from '../components/Button';
 import { TrajectoryView } from './TrajectoryView';
 import { Markdown } from '../components/Markdown';
+import { Thinking, type ThinkRow } from '../components/Thinking';
 
 type SessionTab = 'chat' | 'trajectory';
 
-/** 把活动流折叠成消息气泡（user 已由 comments 表达；agent 的 Text/Reasoning/Tool 各自成块） */
+/** 把活动流折叠成消息：user 评论；text = agent 正文；think = 一回合的 推理+工具 归组 */
 interface Msg {
   id: number;
-  kind: 'user' | 'agent-text' | 'agent-think' | 'tool';
+  kind: 'user' | 'text' | 'think';
   text?: string;
-  name?: string;
-  args?: string;
-  err?: boolean;
-  ms?: number;
+  rows?: ThinkRow[];
 }
 
 export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
@@ -61,7 +60,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
     }
   };
 
-  // 折叠消息序列：先 user comments，再 agent 活动流
+  // 折叠消息序列：先 user comments，再 agent 活动流（推理/工具按回合归组，正文隔断归组）
   const messages: Msg[] = (() => {
     const msgs: Msg[] = [];
     let n = 0;
@@ -71,21 +70,58 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
     // 工具调用参数索引
     const toolById: Record<string, { args?: string; is_error?: boolean }> = {};
     (task?.tool_calls ?? []).forEach((tc) => { toolById[tc.call_id] = { args: tc.args, is_error: tc.is_error }; });
-    (task?.activities ?? []).forEach((a) => {
-      if ('Reasoning' in a) msgs.push({ id: n++, kind: 'agent-think', text: a.Reasoning.text });
-      else if ('Text' in a) msgs.push({ id: n++, kind: 'agent-text', text: a.Text.text });
-      else if ('ToolStart' in a) {
-        msgs.push({
-          id: n++, kind: 'tool', name: a.ToolStart.name,
+
+    let group: ThinkRow[] | null = null;
+    const flush = () => {
+      if (group && group.length) {
+        msgs.push({ id: n++, kind: 'think', rows: group });
+        group = null;
+      }
+    };
+
+    const acts = task?.activities ?? [];
+    let i = 0;
+    while (i < acts.length) {
+      const a = acts[i];
+      if ('Reasoning' in a) {
+        if (!group) group = [];
+        group.push({ id: n++, kind: 'think', text: a.Reasoning.text });
+        i++;
+      } else if ('ToolStart' in a) {
+        const row: ThinkRow = {
+          id: n++,
+          kind: 'tool',
+          name: a.ToolStart.name,
           args: toolById[a.ToolStart.name]?.args ?? '',
           err: toolById[a.ToolStart.name]?.is_error ?? false,
-        });
+        };
+        // 合并紧随其后的 ToolResult（耗时/成败）
+        let j = i + 1;
+        const next = j < acts.length ? acts[j] : null;
+        if (next && 'ToolResult' in next) {
+          const tr = next.ToolResult;
+          const startAt = a.ToolStart.at;
+          if (startAt != null && tr.at != null) row.ms = Math.max(0, tr.at - startAt);
+          row.err = tr.is_error;
+          j++;
+        }
+        if (!group) group = [];
+        group.push(row);
+        i = j;
+      } else if ('Text' in a) {
+        flush();
+        msgs.push({ id: n++, kind: 'text', text: a.Text.text });
+        i++;
+      } else {
+        i++;
       }
-    });
+    }
+    flush();
     return msgs;
   })();
 
   const st = task ? effectiveStatus(task) : 'Pending';
+  const running = task?.status === 'Running';
 
   return (
     <div id="sessiondetail">
@@ -111,7 +147,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
       {tab === 'chat' ? (
         <div className="sd-chat" ref={scrollRef}>
           {messages.length === 0 && !stream && <div className="ph-empty">暂无消息（引擎执行中或未开始）</div>}
-          {messages.map((m) => {
+          {messages.map((m, i) => {
             if (m.kind === 'user') {
               return (
                 <div key={m.id} className="sess-row user">
@@ -119,22 +155,10 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
                 </div>
               );
             }
-            if (m.kind === 'agent-think') {
-              return (
-                <details key={m.id} className="sess-think">
-                  <summary>💭 思考</summary>
-                  <div className="think-body">{m.text}</div>
-                </details>
-              );
-            }
-            if (m.kind === 'tool') {
+            if (m.kind === 'think') {
               return (
                 <div key={m.id} className="sess-row">
-                  <div className="sess-tool">
-                    <span className="tool-name">⚙ {m.name}</span>
-                    <span className={m.err ? 'err' : 'ok'}>{m.err ? '失败' : '成功'}</span>
-                    {m.ms != null ? <span className="muted">{m.ms} ms</span> : null}
-                  </div>
+                  <Thinking rows={m.rows ?? []} running={running && i === messages.length - 1} />
                 </div>
               );
             }

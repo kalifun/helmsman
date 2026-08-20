@@ -16,8 +16,10 @@ import { StatusPill } from '../components/StatusPill';
 import { TrajectoryView } from './TrajectoryView';
 import { Markdown } from '../components/Markdown';
 import { AcceptanceEvidence } from '../components/AcceptanceEvidence';
+import { ContextCards } from '../components/ContextCards';
 import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
+import type { KbNoteRow } from '../api/client';
 
 const TABS: { id: DrawerTab; label: string }[] = [
   { id: 'comments', label: '评论' },
@@ -54,7 +56,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
 
   // 简报快照（metrics.brief_snapshot，按执行 sid）与卡产物（KB 笔记 source_ref=cardId）
   const [briefRows, setBriefRows] = useState<Record<string, { brief_snapshot: Array<{ id: string; title: string; score?: number }> }>>({});
-  const [kbNotes, setKbNotes] = useState<Array<{ id: string; title: string; trust: string; source_kind: string; source_ref: string; tags?: string[]; content?: string[]; summary?: string }>>([]);
+  const [kbNotes, setKbNotes] = useState<KbNoteRow[]>([]);
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -66,7 +68,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
       } catch { /* 快照加载失败不影响 */ }
       try {
         const r = await fetch(`/api/kb/notes?project=${encodeURIComponent(pid)}`);
-        const notes = (await r.json()) as Array<{ id: string; title: string; trust: string; source_kind: string; source_ref: string; tags?: string[]; content?: string[]; summary?: string }>;
+        const notes = (await r.json()) as KbNoteRow[];
         if (alive) setKbNotes(Array.isArray(notes) ? notes : []);
       } catch { /* 笔记加载失败不影响 */ }
     })();
@@ -181,15 +183,22 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
           {hits.length === 0 ? (
             <div className="ph-empty">该执行无 KB 命中快照（无知识命中或执行早于快照记录）</div>
           ) : (
-            <div className="brief-hits">
-              {hits.map((h, i) => (
-                <div key={h.id} className="brief-hit">
-                  <span className="brief-idx">{i + 1}</span>
-                  <span className="brief-title">{h.title}</span>
-                  <span className="brief-score">{Math.round((h.score ?? 0) * 100)}%</span>
-                </div>
-              ))}
-            </div>
+            <ContextCards
+              chunks={hits.map((h) => {
+                const note = kbNotes.find((x) => x.id === h.id);
+                return {
+                  id: h.id,
+                  title: h.title,
+                  content: note ? note.content.join('\n') : undefined,
+                  chars: note ? note.content.reduce((s, l) => s + l.length, 0) : undefined,
+                  sourceKind: note?.source.kind,
+                  sourceRef: note?.source.ref,
+                  score: h.score,
+                };
+              })}
+              title="装配上下文"
+              countLabel={`${hits.length} 条`}
+            />
           )}
           <div className="budget">预算 8k tokens · 命中 {hits.length} 条<div className="pipeline">检索：双时态过滤 → 双路召回 → 融合重排 → 阈值过滤 → 进简报</div></div>
         </>
@@ -197,7 +206,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
     }
     if (tab === 'artifact') {
       // 产物 = 卡关联的结论卡（KB 笔记 source_ref=cardId，验收通过后沉淀）
-      const artifacts = kbNotes.filter((n) => n.source_ref === cardId);
+      const artifacts = kbNotes.filter((n) => n.source?.ref === cardId);
       return (
         <>
           {artifacts.length === 0 ? (
@@ -212,7 +221,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
                   <div className="artifact-title">{n.title}</div>
                   <div className="artifact-tags">
                     <span className="tag">{n.trust}</span>
-                    <span className="tag">{n.source_kind}</span>
+                    <span className="tag">{n.source?.kind}</span>
                     {n.tags?.map((t) => <span key={t} className="tag">{t}</span>)}
                   </div>
                   {n.content?.length ? <div className="artifact-content">{n.content.slice(0, 6).join('\n')}</div> : null}
@@ -259,8 +268,6 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
   };
 
   // —— 轨迹（dsh 模型：按回合分组 · #N 行记录 · 偏移时间 · 工具耗时）——
-;
-
   return (
     <aside id="drawer" className="open">
       <div className="drawer-head">
