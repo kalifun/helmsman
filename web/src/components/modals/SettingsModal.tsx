@@ -44,8 +44,14 @@ function PresetTab({ pid }: { pid: string | null }) {
   const [sandbox, setSandbox] = useState<Profile['sandbox']>('workspace-write');
 
   const load = () => {
-    if (!pid) return;
-    void listProfiles(pid).then(setProfiles).catch(() => setProfiles([]));
+    if (!pid) {
+      setProfiles([]);
+      return;
+    }
+    void listProfiles(pid).then(setProfiles).catch((e) => {
+      setProfiles([]);
+      toast(`预设列表加载失败：${e instanceof Error ? e.message : String(e)}`);
+    });
   };
   useEffect(load, [pid]);
 
@@ -73,6 +79,8 @@ function PresetTab({ pid }: { pid: string | null }) {
   return (
     <>
       <SettingRow label="项目预设（Profile）" desc="三轴组合 = 命名预设；首个预设 = 项目默认（§2.6）" />
+      {!pid && <div className="desc" style={{ padding: '8px 0' }}>先打开一个项目，预设是按项目存的。</div>}
+      {pid && profiles.length === 0 && <div className="desc" style={{ padding: '8px 0' }}>这个项目还没有预设（内置四条会在首次打开时写入）。</div>}
       {profiles.map((p) => (
         <SettingRow key={p.id} label={`${p.name}${p.is_default ? ' ★' : ''}${p.is_builtin ? ' · 内置' : ''}`} desc={profileSummary(p)}>
           <span style={{ display: 'flex', gap: 6 }}>
