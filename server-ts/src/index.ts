@@ -44,7 +44,7 @@ import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
 import type { VerifyResult } from './verify.ts'
 import { buildAcceptanceEvidence, acceptanceReason } from './evidence.ts'
-import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree, executionCwd } from './worktree.ts'
+import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree, executionCwd, isTaskWorktreePath } from './worktree.ts'
 import { priceOf, estCostFrom } from './pricing.ts'
 
 const PORT = Number(process.env.HELMSMAN_PORT ?? 3081)
@@ -162,6 +162,11 @@ async function main(): Promise<void> {
   const proj = newProjection()
   const cardOfSession = new Map<string, { projectId: string; meta: CardMeta; executionCreatedAt: number }>()
 
+  // 隔离区 cwd 曾被当成独立项目；启动时清掉，避免侧栏出现 card-… 假项目。
+  for (const m of storage.loadProjects()) {
+    if (isTaskWorktreePath(m.path)) storage.purgeProject(m.id)
+  }
+
   // 启动：灌持久化项目元数据
   for (const m of storage.loadProjects()) ensureProject(proj, m.id, m.name, m.path)
 
@@ -195,6 +200,7 @@ async function main(): Promise<void> {
   const { restored, offsets } = recoverStore(SESSIONS_ROOT, proj, seedHelmsman ? ['helmsman', WORKSPACE] : null, cardOfSession)
   // 恢复的卡/执行写快照（重放即权威投影；隐式卡借此落库）
   for (const [pid, p] of Object.entries(proj.projects)) {
+    if (isTaskWorktreePath(p.path)) continue
     // 兜底：恢复出的项目若不在 SQLite（旧日志 cwd 项目），先注册（FK 依赖）
     if (!storage.projectExists(pid)) storage.upsertProject(pid, p.name, p.path, '{}')
     for (const [cardId, c] of Object.entries(p.cards)) {

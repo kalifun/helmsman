@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import { newProjection } from '../src/projection.ts'
-import { recoverStore, type RecoveredCard } from '../src/recovery.ts'
+import { recoverStore, projectIdForSessionCwd, type RecoveredCard } from '../src/recovery.ts'
 
 const FIXTURE_ROOT = join(__dirname, 'fixtures')
 const DEFAULT_PROJECT: [string, string] = ['helmsman', '/Users/kalifun/Code/github/opensource/helmsman']
@@ -75,5 +75,26 @@ describe('recovery: 从日志恢复', () => {
     expect(legacy.exec_order.length).toBe(1)
     // card-x 下 2 次执行（日志会话 + Pending 占位）
     expect(cards['card-x'].exec_order.length).toBe(2)
+  })
+})
+
+describe('recovery: worktree cwd 不另立项目', () => {
+  const repo = '/Users/kalifun/Code/github/opensource/helmsman'
+  const wt = `${repo}/.helmsman/worktrees/card-1787145163804-0-mt0435su`
+
+  it('隔离区 cwd 归到仓库项目，不用 card- 目录名', () => {
+    const id = projectIdForSessionCwd(
+      wt,
+      'sess-1',
+      [{ id: 'helmsman', path: repo }],
+      ['helmsman', repo],
+    )
+    expect(id).toBe('helmsman')
+    expect(id.startsWith('card-')).toBe(false)
+  })
+
+  it('没有已知项目时也不用隔离区目录名当项目 id', () => {
+    const id = projectIdForSessionCwd(wt, 'sess-1', [], null)
+    expect(id).toBe('sess-1')
   })
 })

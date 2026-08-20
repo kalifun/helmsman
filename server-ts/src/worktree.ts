@@ -30,6 +30,22 @@ export function executionCwd(projectPath: string, worktree?: TaskWorktree | null
   return worktree?.path ?? projectPath
 }
 
+/** 会话 cwd 是否落在任务隔离区（`.helmsman/worktrees/…`），不能当独立项目。 */
+export function isTaskWorktreePath(p: string): boolean {
+  const n = p.replace(/\\/g, '/')
+  return n.includes('/.helmsman/worktrees/') || n.endsWith('/.helmsman/worktrees')
+}
+
+/** 隔离区路径收回到仓库根；普通 cwd 原样。 */
+export function repoRootFromCwd(cwd: string): string {
+  const n = cwd.replace(/\\/g, '/').replace(/\/+$/, '')
+  const marker = '/.helmsman/worktrees/'
+  const i = n.indexOf(marker)
+  if (i >= 0) return n.slice(0, i)
+  if (n.endsWith('/.helmsman/worktrees')) return n.slice(0, -'/.helmsman/worktrees'.length)
+  return n
+}
+
 /** 项目是 git 仓库且有 HEAD 时，为这次执行开隔离工作区；否则返回 null（沿用项目目录）。 */
 export function prepareTaskWorktree(repo: string, cardId: string, key: string): TaskWorktree | null {
   if (!isGitRepo(repo)) return null

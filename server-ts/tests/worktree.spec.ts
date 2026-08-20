@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree } from '../src/worktree.ts'
+import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree, isTaskWorktreePath, repoRootFromCwd } from '../src/worktree.ts'
 
 describe('任务级 worktree', () => {
   let dir: string
@@ -84,6 +84,14 @@ describe('任务级 worktree', () => {
     expect(mergeTaskWorktree({ repo: dir, worktree: a, message: 'helmsman: a' }).ok).toBe(true)
     expect(Number(git(dir, ['rev-list', '--count', 'HEAD']))).toBe(before + 1)
     expect(git(dir, ['log', '-1', '--pretty=%s'])).toBe('helmsman: a')
+  })
+
+  it('隔离区路径能收回仓库根', () => {
+    const repo = '/tmp/helmsman'
+    const wt = `${repo}/.helmsman/worktrees/card-x`
+    expect(isTaskWorktreePath(wt)).toBe(true)
+    expect(isTaskWorktreePath(repo)).toBe(false)
+    expect(repoRootFromCwd(wt)).toBe(repo)
   })
 })
 

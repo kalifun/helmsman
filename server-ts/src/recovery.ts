@@ -14,6 +14,7 @@ import {
   foldSession,
   type CardMeta,
 } from './projection.ts'
+import { isTaskWorktreePath, repoRootFromCwd } from './worktree.ts'
 
 export interface RecoveredCard {
   projectId: string
@@ -52,16 +53,23 @@ export function recoverStore(
     if (!sessionId || events.length === 0) continue
 
     const cwd = (headerCwd ?? '').replace(/\/+$/, '')
+    const rcHint = cardOfSession.get(sessionId)
     let projectId: string
-    if (defaultProject && cwd && cwd === defaultProject[1].replace(/\/+$/, '')) {
-      projectId = defaultProject[0]
-    } else if (!cwd) {
-      projectId = sessionId
+    if (rcHint) {
+      projectId = rcHint.projectId
     } else {
-      projectId = basename(cwd) || cwd
+      projectId = projectIdForSessionCwd(
+        cwd,
+        sessionId,
+        Object.values(proj.projects).map((p) => ({ id: p.id, path: p.path })),
+        defaultProject,
+      )
     }
-    const name = basename(cwd) || projectId
-    ensureProject(proj, projectId, name, cwd)
+    const repoCwd = repoRootFromCwd(cwd)
+    const name = basename(repoCwd) || projectId
+    if (!proj.projects[projectId]) {
+      ensureProject(proj, projectId, name, repoCwd || cwd)
+    }
 
     let cardId: string
     let createdAt: number
@@ -135,6 +143,28 @@ export function recoverStore(
   }
 
   return { restored, offsets }
+}
+
+/** 会话 cwd → 项目 id：隔离区收回到仓库根，再匹配已有项目 / 种子项目。 */
+export function projectIdForSessionCwd(
+  cwd: string,
+  sessionId: string,
+  known: Array<{ id: string; path: string }>,
+  defaultProject: [string, string] | null,
+): string {
+  const root = repoRootFromCwd(cwd)
+  if (defaultProject && root && root === defaultProject[1].replace(/\/+$/, '')) return defaultProject[0]
+  let best: { id: string; pathLen: number } | null = null
+  for (const p of known) {
+    const pp = repoRootFromCwd(p.path).replace(/\/+$/, '')
+    if (!pp) continue
+    if (root === pp || root.startsWith(`${pp}/`)) {
+      if (!best || pp.length > best.pathLen) best = { id: p.id, pathLen: pp.length }
+    }
+  }
+  if (best) return best.id
+  if (!cwd || isTaskWorktreePath(cwd)) return sessionId
+  return basename(root) || sessionId
 }
 
 /** 读一个 session.jsonl：header + 事件列表 + 总字节数。 */
