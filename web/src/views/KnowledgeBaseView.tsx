@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
 import { Button } from '../components/Button';
-import { invalidateKbNote, listKbNotes, setKbNoteStable, type DebtStatus, type KbNoteRow } from '../api/client';
+import { invalidateKbNote, listKbNotes, searchKbNotes, setKbNoteStable, type DebtStatus, type KbNoteRow } from '../api/client';
 
 function isPinned(n: KbNoteRow): boolean {
   return n.tags.some((t) => t.toLowerCase() === 'stable');
@@ -36,12 +36,11 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
     setLoading(true);
     setError(null);
     try {
-      const rows = await listKbNotes(pid);
+      // M4：搜索走服务端融合检索（关键词/摘要/标签命中 + 排序 + 债务降权），不做客户端子串降级
       if (query && query.trim()) {
-        const ql = query.trim().toLowerCase();
-        setNotes(rows.filter((n) => n.title.toLowerCase().includes(ql) || n.content.join(' ').toLowerCase().includes(ql)));
+        setNotes(await searchKbNotes(pid, query.trim()));
       } else {
-        setNotes(rows);
+        setNotes(await listKbNotes(pid));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

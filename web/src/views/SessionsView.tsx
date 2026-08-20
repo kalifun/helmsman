@@ -1,7 +1,7 @@
 // 职责：会话记录 —— 项目下全部执行（= 会话）清单，解决"黑盒"：卡标题/状态/时间/模型/回合/成本一眼可见，
 // 点击打开详情抽屉（默认轨迹页签）。M2.3：执行挂卡下（1 卡 N 执行），清单平铺全部执行代次。
 import { useUi, writeHash, openSession } from '../store/ui';
-import { useProjection, statusCounts, estCost, relTime, activityText, type TaskState } from '../store/projection';
+import { useProjection, statusCounts, effectiveStatus, estCost, relTime, activityText, type TaskState } from '../store/projection';
 import { StatusPill } from '../components/StatusPill';
 import { EmptyState } from '../components/EmptyState';
 import { Icon } from '../components/icons';
@@ -48,11 +48,11 @@ export function SessionsView({ pid }: { pid: string }) {
           ) : (
             list.map((row, i) => {
               const { t } = row;
-              const cost = estCost(usage[t.id]);
+              const cost = estCost(usage[t.id], t.model);
               const lastAct = t.activities.length ? activityText(t.activities[t.activities.length - 1]).slice(0, 42) : '';
               return (
                 <div key={t.id} className="home-item" style={{ ['--i' as string]: i, cursor: 'pointer' }} onClick={() => open(row)}>
-                  <StatusPill status={t.status} />
+                  <StatusPill status={effectiveStatus(t) as TaskState['status']} />
                   <span className="at" style={{ flex: '0 1 auto', maxWidth: 260 }}>{row.cardTitle || t.title || t.id.slice(0, 16)}</span>
                   <span className="aq" style={{ flex: 1 }}>
                     {t.id.slice(0, 8)} · {t.model || '-'} · {t.turns} 回合 · {relTime(t.started_at)}

@@ -38,7 +38,7 @@ export function NewTaskModal() {
   const cards = useProjection((s) => (pid ? s.cards[pid] || {} : {}));
   // 已完成的卡不挡启动，勾了没有调度意义，不进列表。
   const depOptions = Object.values(cards)
-    .filter((c) => cardStatus(c) !== 'Done')
+    .filter((c) => { const st = cardStatus(c); return st !== 'Done' && st !== 'Cancelled'; })
     .sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0));
   // §2.1 调度门：所选依赖若未完成 → 卡将"等上游"，不自动执行（解锁后自动启动）
   const hasUnmetDep = depIds.some((d) => {

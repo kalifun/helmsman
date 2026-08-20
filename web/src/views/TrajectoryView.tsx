@@ -63,7 +63,7 @@ interface Props {
 export function TrajectoryView({ task, stream }: Props) {
   const usage = useProjection((s) => s.usage);
   const execUsage = usage[task.id];
-  const cost = estCost(execUsage);
+  const cost = estCost(execUsage, task?.model);
   const hit = cacheHitOf(execUsage);
   const rows = useMemo(() => toRows(task), [task]);
   const scrollRef = useRef<HTMLDivElement>(null);

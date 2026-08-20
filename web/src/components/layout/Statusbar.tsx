@@ -17,7 +17,7 @@ export function Statusbar() {
   if (home) {
     const allCards = Object.values(cards).flatMap((m) => Object.values(m));
     const execs = allCards.map((c) => latestExecution(c)).filter((t): t is NonNullable<typeof t> => !!t);
-    const cost = execs.reduce((sum, t) => sum + (estCost(usage[t.id]) ?? 0), 0);
+    const cost = execs.reduce((sum, t) => sum + (estCost(usage[t.id], t.model) ?? 0), 0);
     const hit = avgCacheHit(execs, usage);
     const counts = cardCounts(allCards);
     return (
@@ -42,7 +42,7 @@ export function Statusbar() {
   const projCards = Object.values(cards[pid ?? ''] || {});
   const execs = projCards.map((c) => latestExecution(c)).filter((t): t is NonNullable<typeof t> => !!t);
   const c = cardCounts(projCards);
-  const cost = execs.reduce((sum, t) => sum + (estCost(usage[t.id]) ?? 0), 0);
+  const cost = execs.reduce((sum, t) => sum + (estCost(usage[t.id], t.model) ?? 0), 0);
   const hit = avgCacheHit(execs, usage);
   const parts: string[] = [];
   if (c.Running) parts.push(`运行中 <b>${c.Running}</b>`);

@@ -140,7 +140,7 @@ export function SettingsModal() {
         <SettingRow label="升级阈值" desc="失败信号 ≥ N 次升级剩余回合">
           <input type="number" defaultValue={3} min={1} max={10} />
         </SettingRow>
-        <SettingRow label="定价表" desc="输入 ¥2 / 输出 ¥8 / 缓存读 ¥0.2 / 思考 ¥8（每 M token）" />
+        <SettingRow label="定价表（峰谷）" desc="高峰(北京9-12/14-18) Flash 输入¥3/输出¥9/缓存命中¥0.1 · 空闲半价（每 M token）" />
       </>
     );
     if (tab === 'plugins') return (

@@ -1,6 +1,7 @@
 // 职责：批复队列（P0 一等表面，§4）—— 聚合项目内所有 Waiting（plan/permission/acceptance/cost），
 // 每张显示"要什么 + 为什么 + 卡了多久"，决策（批准/拒绝）必须带评论送达 agent。
 import { useEffect, useState } from 'react';
+import { useUi } from '../store/ui';
 import { Icon } from '../components/icons';
 import { listApprovals, decideApproval, listPolicies, deletePolicy, listSuspendedApprovals, resumeApproval, resumeAllApprovals, type ApprovalItem, type PolicyRow } from '../api/client';
 import { Markdown } from '../components/Markdown';
@@ -47,9 +48,14 @@ export function ApprovalsView({ pid }: { pid: string }) {
     return () => clearInterval(timer);
   }, [pid]);
 
+  const toast = useUi((s) => s.toast);
   const decide = async (id: number, outcome: 'approved' | 'rejected', remember = remembers[id] ?? false) => {
-    const ok = await decideApproval(id, outcome, comments[id] ?? '', remember);
-    if (ok) await load();
+    try {
+      const ok = await decideApproval(id, outcome, comments[id] ?? '', remember);
+      if (ok) await load();
+    } catch (e) {
+      toast(`决策失败：${e instanceof Error ? e.message.slice(0, 120) : String(e)}`);
+    }
   };
 
   return (

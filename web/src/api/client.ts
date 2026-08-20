@@ -249,14 +249,19 @@ export async function triggerWaiting(sid: string, kind: string, reason: string):
   return res.ok;
 }
 
-/** POST /api/approvals/:id —— 决策（approve/reject + 评论送达 agent）；remember=true 沉淀策略原子 */
+/** POST /api/approvals/:id —— 决策（approve/reject + 评论送达 agent）；remember=true 沉淀策略原子。
+ *  失败时 throw（含服务端错误体，如验收合入冲突 409）。 */
 export async function decideApproval(id: number, outcome: 'approved' | 'rejected', comment: string, remember = false): Promise<boolean> {
   const res = await fetch(BASE + '/approvals/' + id, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ outcome, comment, remember }),
   });
-  return res.ok;
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(body.slice(0, 300) || `${res.status}`);
+  }
+  return true;
 }
 
 // ---------- 策略学习（P1 O6：规则可查看可删除） ----------
@@ -411,6 +416,11 @@ export interface KbNoteRow {
 export function listKbNotes(pid: string): Promise<KbNoteRow[]> {
   return req<KbNoteRow[]>('/kb/notes?project=' + encodeURIComponent(pid));
 }
+/** GET /api/kb/search —— 服务端融合检索（标题/内容/关键词/摘要/标签打分排序，unused/toxic 降权） */
+export function searchKbNotes(pid: string, q: string): Promise<KbNoteRow[]> {
+  return req<KbNoteRow[]>('/kb/search?project=' + encodeURIComponent(pid) + '&q=' + encodeURIComponent(q));
+}
+
 
 export async function invalidateKbNote(id: string): Promise<boolean> {
   const res = await fetch(BASE + '/kb/notes/' + encodeURIComponent(id) + '/invalidate', { method: 'POST' });

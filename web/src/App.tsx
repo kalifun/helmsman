@@ -165,7 +165,7 @@ export default function App() {
               {pid && sessionId ? <SessionDetailView pid={pid} sid={sessionId} /> : null}
               {!sessionId && home ? <HomeView /> : null}
               {!sessionId && pid && view === 'projhome' ? <ProjectHomeView pid={pid} /> : null}
-              {!sessionId && pid && view === 'kanban' ? <KanbanView pid={pid} /> : null}
+              {!sessionId && pid && view === 'kanban' ? <KanbanView key={pid} pid={pid} /> : null}
               {!sessionId && pid && view === 'chat' ? <SessionView pid={pid} /> : null}
               {!sessionId && pid && view === 'sessions' ? <SessionsView pid={pid} /> : null}
               {!sessionId && pid && view === 'graph' ? <GraphView pid={pid} /> : null}
