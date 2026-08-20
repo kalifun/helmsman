@@ -281,6 +281,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
           ) : null}
           <span>{projects[pid]?.name ?? pid}</span>
           {task?.recovered ? <span className="rec" style={{ fontSize: 10, color: 'var(--text3)', border: '1px solid var(--line2)', borderRadius: 6, padding: '0 5px' }}>恢复</span> : null}
+          {task?.isolated ? <span title="任务隔离区创建失败，本次执行直接写在共享项目目录" style={{ fontSize: 10, color: 'var(--yellow)', border: '1px solid var(--yellow)', borderRadius: 6, padding: '0 5px' }}>⚠ 共享目录运行</span> : null}
           {unmet.length ? <span style={{ color: 'var(--yellow)' }}>等上游：{unmet.join('、')}</span> : null}
           {task?.worktree ? <span className="tag" title={task.worktree.path}>隔离 · {task.worktree.branch}</span> : null}
           {task?.waiting ? <span className="waiting-chip">⏸ 待批复：{waitingLabel(task.waiting.kind)}</span> : null}
