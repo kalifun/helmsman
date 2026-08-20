@@ -340,6 +340,12 @@ export async function setDefaultProfile(pid: string, id: string): Promise<boolea
   return res.ok;
 }
 
+/** DELETE /api/projects/:pid/presets/:id —— 删自定义预设 */
+export async function deleteProfile(pid: string, id: string): Promise<boolean> {
+  const res = await fetch(BASE + '/projects/' + encodeURIComponent(pid) + '/presets/' + encodeURIComponent(id), { method: 'DELETE' });
+  return res.ok;
+}
+
 /** 三轴 → 中文标签（建卡下拉/预设管理展示） */
 export const MODE_LABEL: Record<Profile['mode'], string> = { normal: '常规', plan: '计划', goal: '目标' };
 export const SETTING_LABEL: Record<Profile['setting'], string> = { light: '轻量', balanced: '均衡', delivery: '交付' };

@@ -1440,6 +1440,19 @@ async function main(): Promise<void> {
         send(200, { ok: true, default: id })
         return
       }
+      // DELETE /api/projects/:pid/presets/:id —— 删自定义；内置 409；删的是默认则回落到内置
+      const oneProfileMatch = path.match(/^\/api\/projects\/([^/]+)\/presets\/([^/]+)$/)
+      if (oneProfileMatch && method === 'DELETE') {
+        const pid = decodeURIComponent(oneProfileMatch[1])
+        const id = decodeURIComponent(oneProfileMatch[2])
+        if (!proj.projects[pid]) throw new HttpError(404, 'project not found')
+        const existing = storage.getProfile(pid, id)
+        if (!existing) throw new HttpError(404, `profile '${id}' not found`)
+        if (existing.is_builtin) throw new HttpError(409, '内置预设不可删')
+        if (!storage.removeProfile(pid, id)) throw new HttpError(409, '删除失败')
+        send(200, { ok: true, default: storage.defaultProfile(pid)?.id ?? null })
+        return
+      }
 
       // GET /api/approvals?project= —— 批复队列（待批复 + 等待原因 + 策略建议）
       if (method === 'GET' && path === '/api/approvals') {

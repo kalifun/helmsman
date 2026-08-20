@@ -54,4 +54,15 @@ describe('Profile 存储（§2.6）', () => {
     const ps = s.listProfiles('p1')
     expect(ps.find((p) => p.is_default)?.id).toBe('mine')
   })
+
+  it('自定义可删，内置不可删；删默认回落到内置', () => {
+    s.upsertProject('p1', '项目', '/tmp/x', '{}')
+    s.seedProfiles('p1')
+    s.upsertProfile('p1', { id: 'mine', name: '我的', is_builtin: false, mode: 'normal', setting: 'balanced', approval: 'ask', sandbox: 'workspace-write', is_default: false })
+    expect(s.setDefaultProfile('p1', 'mine')).toBe(true)
+    expect(s.removeProfile('p1', 'standard')).toBe(false)
+    expect(s.removeProfile('p1', 'mine')).toBe(true)
+    expect(s.getProfile('p1', 'mine')).toBeUndefined()
+    expect(s.defaultProfile('p1')?.id).toBe(BUILTIN_PROFILES[0].id)
+  })
 })

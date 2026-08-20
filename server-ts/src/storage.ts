@@ -684,8 +684,15 @@ export class Storage {
   removeProfile(projectId: string, id: string): boolean {
     const p = this.getProfile(projectId, id)
     if (!p || p.is_builtin) return false // 内置不可删
+    const wasDefault = p.is_default
     const info = this.db.prepare('DELETE FROM profiles WHERE project_id = ? AND id = ?').run(projectId, id)
-    return info.changes > 0
+    if (info.changes === 0) return false
+    if (wasDefault) {
+      const rest = this.listProfiles(projectId)
+      const next = rest.find((x) => x.id === BUILTIN_PROFILES[0].id) ?? rest.find((x) => x.is_builtin) ?? rest[0]
+      if (next) this.setDefaultProfile(projectId, next.id)
+    }
+    return true
   }
 
   close(): void {

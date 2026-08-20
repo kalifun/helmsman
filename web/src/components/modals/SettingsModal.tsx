@@ -7,7 +7,7 @@ import { Switch } from '../Switch';
 import { ThemePicker } from '../ThemePicker';
 import { useUi } from '../../store/ui';
 import {
-  listProfiles, setDefaultProfile, createProfile, profileSummary,
+  listProfiles, setDefaultProfile, createProfile, deleteProfile, profileSummary,
   MODE_LABEL, SETTING_LABEL, APPROVAL_LABEL, SANDBOX_LABEL,
   type Profile,
 } from '../../api/client';
@@ -63,12 +63,24 @@ function PresetTab({ pid }: { pid: string | null }) {
     if (p) { setNewId(''); setNewName(''); load(); }
   };
 
+  const remove = async (id: string, name: string) => {
+    if (!pid) return;
+    const ok = await deleteProfile(pid, id);
+    toast(ok ? `已删除「${name}」` : '删除失败（内置不能删）');
+    if (ok) load();
+  };
+
   return (
     <>
       <SettingRow label="项目预设（Profile）" desc="三轴组合 = 命名预设；首个预设 = 项目默认（§2.6）" />
       {profiles.map((p) => (
         <SettingRow key={p.id} label={`${p.name}${p.is_default ? ' ★' : ''}${p.is_builtin ? ' · 内置' : ''}`} desc={profileSummary(p)}>
-          <Button mini variant="ghost" disabled={p.is_default} onClick={() => void makeDefault(p.id)} title={`设「${p.name}」为默认`}>设默认</Button>
+          <span style={{ display: 'flex', gap: 6 }}>
+            <Button mini variant="ghost" disabled={p.is_default} onClick={() => void makeDefault(p.id)} title={`设「${p.name}」为默认`}>设默认</Button>
+            {!p.is_builtin && (
+              <Button mini variant="ghost" onClick={() => void remove(p.id, p.name)} title={`删除「${p.name}」`}>删除</Button>
+            )}
+          </span>
         </SettingRow>
       ))}
       <div className="preset-custom">
