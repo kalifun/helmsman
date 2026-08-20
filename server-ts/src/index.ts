@@ -211,7 +211,8 @@ async function main(): Promise<void> {
         description: c.description,
         kind: c.kind,
         milestone: c.milestone,
-        criteria: null,
+        criteria: c.criteria ?? null,
+        budget: c.budget ?? null,
         deps: c.deps ?? [],
         created_at: c.created_at,
       })
@@ -288,8 +289,9 @@ async function main(): Promise<void> {
       if (before !== 'Done' && t.status === 'Done') {
         void kickStartDownstream(pid)
       }
-      // P1.5 预算门：每轮结束（turn/end）检查——覆盖 plan 批准后继续执行等所有轮次
-      if (te.event.type === 'turn/end' && cardId && t.waiting === null) {
+      // P1.5 预算门：后续轮结束（turn/end）检查——首轮由 startExecution .then 在 plan/goal/calibrate
+      // 检测之后兜底（避免 cost 抢先 plan 审批，破坏"先看计划"流程）
+      if (te.event.type === 'turn/end' && cardId && t.waiting === null && t.turns > 1) {
         checkBudget(pid, cardId, te.sessionId, nowMs())
       }
     }
@@ -606,6 +608,9 @@ async function main(): Promise<void> {
             })
             return
           }
+          // S1 修复：任何 waiting（含 tailer 已挂的 cost/checkpoint）→ 本趟终止，等批复；
+          // 否则 finishTask 的 Done 会让下面的验收/沉淀/merge 绕过批复直接执行
+          if (t.waiting) return
           // P1.5 预算门：超支挂起（opt-in；已挂 plan/goal/calibrate 等待的不重复挂）
           if (checkBudget(projectId, cardId, sid, at)) return
           // 验收门（§3.3）：任务 Done 且有验收标准 → 独立执行验收（不信任 agent 自评）
@@ -778,7 +783,7 @@ async function main(): Promise<void> {
     t.status = 'Running' // 等待批复（批准=接受成本完成 / 拒绝=停止）
     storage.upsertExecution({
       id: sid, card_id: cardId, status: 'Running',
-      preset_json: '{}', deps_json: JSON.stringify(card.deps ?? []),
+      preset_json: t.preset ? JSON.stringify(t.preset) : '{}', deps_json: JSON.stringify(card.deps ?? []),
       forked_from: null, started_at: t.started_at ?? null, finished_at: null, created_at: at,
     })
     storage.insertApproval({
@@ -1540,8 +1545,8 @@ async function main(): Promise<void> {
         const remember = body.remember === true
         const appr = storage.getApproval(id)
         if (!appr) throw new HttpError(404, `approval ${id} not found`)
-        // 验收批准先合入隔离区；冲突则 409 且保持待批复，避免人点过了文件却没进去。
-        if (appr.kind === 'acceptance' && outcome === 'approved') {
+        // 验收/成本批准先合入隔离区；冲突则 409 且保持待批复，避免人点过了文件却没进去。
+        if ((appr.kind === 'acceptance' || appr.kind === 'cost') && outcome === 'approved') {
           const cardId0 = proj.sessionCard[appr.execution_id]
           const p0 = proj.projects[appr.project_id]
           const card0 = p0?.cards[cardId0]
@@ -1584,6 +1589,7 @@ async function main(): Promise<void> {
                 kind: card.kind,
                 milestone: card.milestone,
                 criteria: proposal,
+                budget: card.budget ?? null,
                 deps: card.deps ?? [],
                 created_at: card.created_at,
               })
@@ -1635,11 +1641,33 @@ async function main(): Promise<void> {
                 storage.setExecutionWorktree(sid, null, null)
               }
             }
+            const oldEx = storage.getExecutionBySession(sid)
             storage.upsertExecution({
               id: sid, card_id: proj.sessionCard[sid], status: ct.status,
-              preset_json: '{}', deps_json: '[]',
+              preset_json: ct.preset ? JSON.stringify(ct.preset) : '{}', deps_json: '[]',
               forked_from: null, started_at: ct.started_at ?? null, finished_at: ct.finished_at ?? null,
-              created_at: appr.created_at,
+              created_at: oldEx?.created_at ?? appr.created_at,
+            })
+            // M6(server)：预算批复后补 metrics（终态确定才落账，引用检测/债务统计需要这条）
+            const cu = ct.usage
+            const cCost = estCostFrom(cu, priceOf(ct.model))
+            const cHit = cu.inputTokens + cu.cacheReadTokens > 0 ? cu.cacheReadTokens / (cu.inputTokens + cu.cacheReadTokens) : 0
+            storage.insertMetric({
+              project_id: appr.project_id,
+              task_id: sid,
+              brief_snapshot: [],
+              outcome: ct.status,
+              cited_entries: [],
+              turns: ct.turns,
+              steps: ct.steps,
+              verified: undefined,
+              cost: Math.round(cCost * 10000) / 10000,
+              cache_hit: Math.round(cHit * 10000) / 10000,
+              in_tokens: cu.inputTokens,
+              cache_tokens: cu.cacheReadTokens,
+              out_tokens: cu.outputTokens,
+              reason_tokens: cu.reasoningTokens,
+              created_at: nowMs(),
             })
             if (outcome === 'rejected') void acp.sessionCancel(sid).catch(() => {})
           }
@@ -1653,11 +1681,25 @@ async function main(): Promise<void> {
           const card = proj.projects[appr.project_id]?.cards[cardId]
           const ct = card?.executions[sid]
           const pAcc = proj.projects[appr.project_id]
-          if (outcome === 'approved' && card && ct) persistAgentNote(appr.project_id, cardId, card.title, ct)
-          if (outcome === 'rejected' && ct?.worktree && pAcc) {
-            discardTaskWorktree(pAcc.path, ct.worktree)
-            ct.worktree = null
-            storage.setExecutionWorktree(sid, null, null)
+          if (outcome === 'approved' && card && ct) {
+            persistAgentNote(appr.project_id, cardId, card.title, ct)
+          }
+          if (outcome === 'rejected' && ct) {
+            // M6：拒绝 = 改动被丢弃 → 卡置 Cancelled，下游不得按"完成"放行
+            if (ct.worktree && pAcc) {
+              discardTaskWorktree(pAcc.path, ct.worktree)
+              ct.worktree = null
+              storage.setExecutionWorktree(sid, null, null)
+            }
+            ct.status = 'Cancelled'
+            ct.waiting = null
+            const exOld = storage.getExecutionBySession(sid)
+            storage.upsertExecution({
+              id: sid, card_id: cardId, status: 'Cancelled',
+              preset_json: ct.preset ? JSON.stringify(ct.preset) : '{}', deps_json: '[]',
+              forked_from: null, started_at: ct.started_at ?? null, finished_at: ct.finished_at ?? null,
+              created_at: exOld?.created_at ?? appr.created_at,
+            })
           }
           send(200, { ok: true, outcome, id })
           return

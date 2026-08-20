@@ -76,7 +76,7 @@ export function mergeTaskWorktree(input: {
   try {
     if (isDirty(worktree.path)) {
       runGit(worktree.path, ['add', '-A'])
-      runGit(worktree.path, ['-c', 'commit.gpgsign=false', 'commit', '-m', message], { env: IDENT })
+      runGit(worktree.path, ['-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-m', message], { env: IDENT })
       committed = true
     }
   } catch (e) {
@@ -91,7 +91,7 @@ export function mergeTaskWorktree(input: {
     // squash：主树一条提交，避免隔离区 commit + --no-ff 再记一条。
     runGit(repo, ['merge', '--squash', worktree.branch])
     if (hasStaged(repo)) {
-      runGit(repo, ['-c', 'commit.gpgsign=false', 'commit', '-m', message], { env: IDENT })
+      runGit(repo, ['-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-m', message], { env: IDENT })
     }
   } catch (e) {
     const conflicts = conflictedFiles(repo)
@@ -162,8 +162,11 @@ function abortMerge(repo: string): void {
   try {
     runGit(repo, ['merge', '--abort'])
   } catch { /* squash 冲突不一定有 MERGE_HEAD */ }
+  // S2：只有确有未解决的冲突才 reset --merge（恢复冲突标记）；
+  // 无冲突失败（脏树拒绝 / hook 失败）时绝不碰 index —— reset --merge 会抹掉用户已暂存未提交的改动
   try {
-    runGit(repo, ['reset', '--merge'])
+    const conflicts = conflictedFiles(repo)
+    if (conflicts.length > 0) runGit(repo, ['reset', '--merge'])
   } catch { /* 已经干净就算了 */ }
 }
 

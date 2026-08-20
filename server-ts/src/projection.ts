@@ -328,6 +328,8 @@ export function foldTask(t: TaskState, ev: Record<string, unknown>): void {
 
 /** 控制通道终态（ACP stop_reason）：end_turn → Done；cancelled → Cancelled；其余 → Failed。 */
 export function finishTask(t: TaskState, stopReason: string, at: number): void {
+  // Waiting 非空 = 任务停在等待批复（plan/checkpoint/cost…）：保留等待态，不被终态覆盖
+  if (t.waiting) return
   t.status = stopReason === 'end_turn' ? 'Done' : stopReason === 'cancelled' ? 'Cancelled' : 'Failed'
   t.finished_at = at
 }
