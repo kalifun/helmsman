@@ -503,6 +503,7 @@ async function main(): Promise<void> {
 - 每完成一个可独立验收的阶段，输出一段进度小结（做了什么/验证了什么/下一步），
   用一行 "${CHECKPOINT_DONE_MARKER}" 结尾，然后停下等方向确认（继续/调整/停止）。`
     }
+    finalPrompt = `${finalPrompt}\n\n只改任务要求的文件。不要安装依赖、不要跑全量测试，除非任务或验收命令写了。`
     const groupTag = opts.groupTag
     void acp
       .sessionPrompt(sid, finalPrompt)
