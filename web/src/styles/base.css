@@ -1,6 +1,14 @@
 /* 职责：全局样式 —— 从 taskboard-v9.html 原样移植的视觉系统（token 由 ThemeProvider 运行时注入）。
  * 排版：正文 13px（Geist + PingFang SC）、mono + tabular-nums；圆角 6/8/12；面板层级 canvas<surface<surface2；
- * 1px line 分隔；无重阴影（hover 0 2px 10px 微影）；状态色仅语义粉彩。 */
+ * 1px line 分隔；无重阴影（hover 0 2px 10px 微影）；状态色仅语义粉彩。
+ *
+ * ★ 换装纪律（约束记录，见 docs-archive/skin-system-v1.md）：
+ *   未来 Helmsman 要支持"换装"（皮肤 = token 覆盖 + CSS 注入）。因此：
+ *   1) 视觉属性一律走 CSS 变量（--canvas/--text/--r-*/--sp-* 等），禁止硬编码色值（#fff/rgba）；
+ *   2) 布局尺寸（宽/高/间距）优先变量或相对单位，方便皮肤覆盖；
+ *   3) 组件样式集中在 base.css 的可识别区块，不散落在 JSX/内联 style 里；
+ *   4) 不引入 Tailwind utility 类（样式散在类名里，皮肤无法覆盖）。
+ *   移植 Beautiful UI 等外部组件时，按此纪律改写，而不是直接粘贴。 */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #root { height: 100%; }
 body {
