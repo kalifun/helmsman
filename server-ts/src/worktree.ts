@@ -72,12 +72,14 @@ export function mergeTaskWorktree(input: {
     return { ok: true, committed, merged: false }
   }
   try {
-    runGit(repo, ['-c', 'commit.gpgsign=false', 'merge', '--no-ff', '-m', message, worktree.branch], { env: IDENT })
+    // squash：主树一条提交，避免隔离区 commit + --no-ff 再记一条。
+    runGit(repo, ['merge', '--squash', worktree.branch])
+    if (hasStaged(repo)) {
+      runGit(repo, ['-c', 'commit.gpgsign=false', 'commit', '-m', message], { env: IDENT })
+    }
   } catch (e) {
     const conflicts = conflictedFiles(repo)
-    try {
-      runGit(repo, ['merge', '--abort'])
-    } catch { /* 没有进行中的 merge 就算了 */ }
+    abortMerge(repo)
     return {
       ok: false,
       committed,
@@ -129,6 +131,24 @@ function commitsAhead(repo: string, branch: string): boolean {
   } catch {
     return false
   }
+}
+
+function hasStaged(repo: string): boolean {
+  try {
+    runGit(repo, ['diff', '--cached', '--quiet'])
+    return false
+  } catch {
+    return true
+  }
+}
+
+function abortMerge(repo: string): void {
+  try {
+    runGit(repo, ['merge', '--abort'])
+  } catch { /* squash 冲突不一定有 MERGE_HEAD */ }
+  try {
+    runGit(repo, ['reset', '--merge'])
+  } catch { /* 已经干净就算了 */ }
 }
 
 function conflictedFiles(repo: string): string[] {

@@ -75,6 +75,16 @@ describe('任务级 worktree', () => {
     expect(r.committed).toBe(false)
     expect(r.merged).toBe(false)
   })
+
+  it('合入主树只多一条提交', () => {
+    initRepo(dir)
+    const before = Number(git(dir, ['rev-list', '--count', 'HEAD']))
+    const a = prepareTaskWorktree(dir, 'card-a', 'one')!
+    writeFileSync(join(a.path, 'only.txt'), '1\n')
+    expect(mergeTaskWorktree({ repo: dir, worktree: a, message: 'helmsman: a' }).ok).toBe(true)
+    expect(Number(git(dir, ['rev-list', '--count', 'HEAD']))).toBe(before + 1)
+    expect(git(dir, ['log', '-1', '--pretty=%s'])).toBe('helmsman: a')
+  })
 })
 
 function initRepo(cwd: string): void {
@@ -87,6 +97,6 @@ function initRepo(cwd: string): void {
   git(cwd, ['commit', '-m', 'init'])
 }
 
-function git(cwd: string, args: string[]): void {
-  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+function git(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
