@@ -73,6 +73,8 @@ export interface TaskState {
   worktree?: { path: string; branch: string } | null
   /** 校准会话标记（D1.7）：需求校准执行不算正常执行代次（调度门补启动时跳过） */
   calib?: boolean
+  /** 隔离区创建失败（M5）：本次执行回退共享项目目录（用户可见，防静默） */
+  isolated?: boolean
   /** fold 内部状态：当前回合号（Activity.turn 来源，不参与业务语义） */
   current_turn: number
 }

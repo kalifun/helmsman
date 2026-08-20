@@ -108,3 +108,21 @@ function initRepo(cwd: string): void {
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
+
+/** 补充：L1/M5 相关（worktree 语义） */
+import { describe, expect, it } from 'vitest'
+import { isTaskWorktreePath, repoRootFromCwd } from '../src/worktree.ts'
+
+describe('worktree 路径语义（review 补充）', () => {
+  it('isTaskWorktreePath 识别隔离区', () => {
+    expect(isTaskWorktreePath('/repo/.helmsman/worktrees/card-1')).toBe(true)
+    expect(isTaskWorktreePath('/repo/.helmsman/worktrees')).toBe(true)
+    expect(isTaskWorktreePath('/repo/src')).toBe(false)
+  })
+
+  it('repoRootFromCwd 隔离区路径收回仓库根', () => {
+    expect(repoRootFromCwd('/repo/.helmsman/worktrees/card-1')).toBe('/repo')
+    expect(repoRootFromCwd('/repo/.helmsman/worktrees')).toBe('/repo')
+    expect(repoRootFromCwd('/repo/src')).toBe('/repo/src')
+  })
+})

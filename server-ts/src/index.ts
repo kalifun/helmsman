@@ -269,6 +269,20 @@ async function main(): Promise<void> {
     }
   }
 
+  // M4：恢复出的 Failed/Cancelled 且无待批复的执行，若残留 worktree → 丢弃（崩溃中断不再泄漏分支/目录）
+  for (const [pid, p] of Object.entries(proj.projects)) {
+    if (isTaskWorktreePath(p.path)) continue
+    for (const card of Object.values(p.cards)) {
+      for (const [sid, t] of Object.entries(card.executions)) {
+        if ((t.status === 'Failed' || t.status === 'Cancelled') && !t.waiting && t.worktree) {
+          discardTaskWorktree(p.path, t.worktree)
+          t.worktree = null
+          storage.setExecutionWorktree(sid, null, null)
+        }
+      }
+    }
+  }
+
   // 既有项目补种子 Profile（老库无 profiles 表数据时）
   for (const pid of Object.keys(proj.projects)) storage.seedProfiles(pid)
 
@@ -371,6 +385,24 @@ async function main(): Promise<void> {
       return
     }
     if (t.status !== 'Done') return
+    // L1：plan 模式拒绝后 agent 修订计划（【计划完毕】标记）→ 重新挂计划审批，不自动合入/验收
+    if (t.preset?.mode === 'plan' && detectPlanCompletion(t)) {
+      const planText = extractPlanText(t)
+      t.waiting = { kind: 'plan', reason: '计划模式：agent 已修订计划，请再次审阅（批准后才合入）', payload: { mode: 'plan', plan: planText } }
+      t.status = 'Running'
+      storage.upsertExecution({
+        id: sid, card_id: cardId, status: 'Running',
+        preset_json: t.preset ? JSON.stringify(t.preset) : '{}', deps_json: '[]',
+        forked_from: null, started_at: t.started_at ?? null, finished_at: null, created_at: at,
+      })
+      storage.insertApproval({
+        id: 0, project_id: projectId, execution_id: sid, kind: 'plan',
+        payload: { mode: 'plan', plan: planText },
+        reason: '计划模式：agent 已修订计划，请审阅',
+        outcome: null, comment: null, created_at: at, decided_at: null, suspended_at: null,
+      })
+      return
+    }
     const hang = t.preset?.setting === 'delivery' && t.preset?.approval !== 'yolo'
     const runCwd = executionCwd(p.path, t.worktree)
     let verifyResult: VerifyResult | null = null
@@ -428,7 +460,7 @@ async function main(): Promise<void> {
       const names = unmet.map((d) => p.cards[d]?.title ?? d).join('、')
       throw new HttpError(409, `依赖未完成（等上游）：${names}`)
     }
-    const wtKey = `${cardId}-${Date.now().toString(36)}`
+    const wtKey = `${cardId}-${Date.now().toString(36)}-${WT_SEQ++}`
     const wt = prepareTaskWorktree(p.path, cardId, wtKey)
     let sid: string
     try {
@@ -438,8 +470,10 @@ async function main(): Promise<void> {
       throw e
     }
     registerSession(proj, sid, projectId, cardId)
-    // 依赖契约快照：继承卡 deps（目标契约 taskgraph；图 DAG 边 = 最新执行此字段）
+    // M5：隔离区不可用 → 执行可见标记（前端提示"共享目录运行"），不静默
     const t0 = proj.projects[projectId]?.cards[cardId]?.executions[sid]
+    if (t0 && !wt) t0.isolated = true
+    // 依赖契约快照：继承卡 deps（目标契约 taskgraph；图 DAG 边 = 最新执行此字段）
     if (t0) t0.deps = c.deps ?? []
     if (t0 && wt) t0.worktree = wt
     // 预设快照进投影（§2.6：执行契约，随任务生命周期延续，前端可见）
@@ -1951,6 +1985,8 @@ function cardStatusCounts(p: Project): number[] {
   }
   return c
 }
+
+let WT_SEQ = 0 // worktree key 全局计数器（同毫秒并发执行防撞名）
 
 function latestExecution(card: CardState): CardState['executions'][string] | null {
   const order = card.exec_order.length ? card.exec_order : Object.keys(card.executions)
