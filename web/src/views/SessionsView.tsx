@@ -24,19 +24,17 @@ export function SessionsView({ pid }: { pid: string }) {
   const list = rows.sort((a, b) => (b.t.started_at ?? 0) - (a.t.started_at ?? 0));
   const counts = statusCounts(list.map((r) => r.t));
 
-  const matchItem = (it: { id: string | number; title: string; sub?: string }, query: string): boolean => {
-    const hay = [String(it.id), it.title, it.sub ?? ''].join(' ').toLowerCase();
+  const match = (row: { t: TaskState; cardId: string | null; cardTitle: string }, query: string): boolean => {
+    const { t } = row;
+    const hay = [
+      row.cardTitle, t.title, t.model, effectiveStatus(t), t.id,
+      t.activities.length ? activityText(t.activities[t.activities.length - 1]) : '',
+    ].filter(Boolean).join(' ').toLowerCase();
     return query.toLowerCase().split(/\s+/).every((k) => hay.includes(k));
   };
 
-  // 搜索模式：输入时 SearchBox 弹出紧凑结果（滑动高亮 + 键盘导航），下方完整列表隐藏；清空恢复
-  const searching = q.trim().length > 0;
-  const searchItems = list.map((row) => ({
-    id: row.t.id,
-    title: row.cardTitle || row.t.title || row.t.id.slice(0, 16),
-    sub: `${row.t.model || '-'} · ${effectiveStatus(row.t)}`,
-    onSelect: () => open(row),
-  }));
+  // 搜索 = 纯过滤：SearchBox(bare) 只提供输入框，结果完全复用下方完整列表
+  const filtered = q.trim() ? list.filter((row) => match(row, q.trim())) : list;
 
   const open = (row: { t: TaskState; cardId: string | null }) => {
     if (!row.cardId) {
@@ -62,20 +60,20 @@ export function SessionsView({ pid }: { pid: string }) {
 
         <div style={{ marginTop: 16 }}>
           <SearchBox
+            bare
             placeholder="搜索会话（标题 / 模型 / 状态 / 会话 id）…"
             value={q}
             onValue={setQ}
-            items={searching ? searchItems : []}
-            filter={matchItem}
-            emptyText="没有匹配的会话"
           />
         </div>
 
         <div className="home-sec" style={{ marginTop: 16 }}>
-          {searching ? null : list.length === 0 ? (
+          {list.length === 0 ? (
             <EmptyState icon="chat" title="还没有会话" desc="建一张卡（看板「+ 建卡」）即创建首代执行，引擎自动执行；可 fork 更多代次" />
+          ) : filtered.length === 0 ? (
+            <EmptyState icon="search" title="没有匹配的会话" desc="换一个关键词试试" />
           ) : (
-            list.map((row, i) => {
+            filtered.map((row, i) => {
               const { t } = row;
               const cost = estCost(usage[t.id], t.model);
               const lastAct = t.activities.length ? activityText(t.activities[t.activities.length - 1]).slice(0, 42) : '';

@@ -12,15 +12,18 @@ export interface SearchItem {
 
 interface Props {
   placeholder?: string;
-  items: SearchItem[];
-  filter: (item: SearchItem, q: string) => boolean;
+  /** 菜单模式（默认）需要；bare 模式可不传 */
+  items?: SearchItem[];
+  filter?: (item: SearchItem, q: string) => boolean;
   emptyText?: string;
   /** 受控模式：外部持有 query（列表过滤需要同步） */
   value?: string;
   onValue?: (q: string) => void;
+  /** bare = 纯输入框（不渲染结果列表，结果由调用方在下方列表呈现，完全复用现有渲染） */
+  bare?: boolean;
 }
 
-export function SearchBox({ placeholder = '搜索…', items, filter, emptyText = '无匹配', value, onValue }: Props) {
+export function SearchBox({ placeholder = '搜索…', items = [], filter = () => true, emptyText = '无匹配', value, onValue, bare = false }: Props) {
   const [q0, setQ0] = useState('');
   const [active, setActive] = useState(-1);
   const [hl, setHl] = useState<{ top: number; height: number } | null>(null);
@@ -33,6 +36,26 @@ export function SearchBox({ placeholder = '搜索…', items, filter, emptyText 
   };
 
   const shown = q.trim() ? items.filter((it) => filter(it, q.trim())) : items;
+
+  // bare 模式：只有输入行，键盘导航/结果列表全部由调用方负责
+  if (bare) {
+    return (
+      <div className="searchbox">
+        <div className="searchbox-input">
+          <svg className="sic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M21 21l-4.3-4.3" />
+          </svg>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={placeholder}
+            aria-label={placeholder}
+          />
+        </div>
+      </div>
+    );
+  }
 
   // 滑动高亮：把 glide 条移动到指定行（读 DOM offsetTop，事件时已就绪）
   const glide = (i: number) => {
