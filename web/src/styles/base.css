@@ -1299,3 +1299,88 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .ctx-src .ref { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx-badges { display: flex; gap: 4px; align-items: center; }
 .ctx-score { margin-left: auto; font-family: var(--mono); font-size: var(--fs-xs); color: var(--text3); }
+
+/* --- 任务行（Beautiful UI Task Rows 移植：live 状态行 + 展开明细）--- */
+.taskrows { display: flex; flex-direction: column; gap: var(--sp-2); }
+.taskrow {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-hover); overflow: hidden;
+  transition: background .15s;
+}
+.taskrow:hover { background: var(--surface2); }
+.taskrow-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 10px; background: none; border: none; cursor: pointer;
+  font-family: var(--font); text-align: left; color: var(--text);
+}
+.taskrow-ic { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.taskrow-ic.done { background: var(--green); color: var(--on-primary); }
+.taskrow-ic.fail { background: var(--red); color: var(--on-primary); }
+.taskrow-ic .ring { position: relative; width: 24px; height: 24px; }
+.taskrow-ic .ring svg { position: absolute; inset: 0; animation: taskrow-spin 1.1s linear infinite; }
+.taskrow-ic .ring b {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  height: 100%; font-family: var(--mono); font-size: 10.5px; font-weight: 600; color: var(--text);
+}
+@keyframes taskrow-spin { to { transform: rotate(360deg); } }
+.taskrow-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); font-weight: 500; }
+.taskrow-meta { font-size: var(--fs-sm); color: var(--text2); font-family: var(--mono); white-space: nowrap; }
+.taskrow-chev { color: var(--text3); flex-shrink: 0; transition: transform .28s cubic-bezier(.23,1,.32,1); }
+.taskrow.open .taskrow-chev { transform: rotate(180deg); }
+.taskrow-body { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s cubic-bezier(.23,1,.32,1), opacity .25s; }
+.taskrow.open .taskrow-body { grid-template-rows: 1fr; opacity: 1; }
+.taskrow-body-inner { overflow: hidden; }
+.taskrow-detail { display: grid; grid-template-columns: 20px 1fr; gap: var(--sp-2); padding: 0 10px 10px; }
+.taskrow-detail .line { width: 1px; background: var(--line); margin: 0 auto; }
+.taskrow-detail .items { display: flex; flex-direction: column; gap: 5px; }
+.taskrow-detail .di { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text2); }
+.taskrow-detail .di b { font-family: var(--mono); font-size: var(--fs-xs); color: var(--text3); font-weight: 400; white-space: nowrap; }
+
+/* --- 工具调用折叠条（Beautiful UI Tool Chips 移植）--- */
+.toolchips { margin: 6px 0; }
+.toolchips-head {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px; margin: -4px -8px; border-radius: 7px;
+  background: none; border: none; cursor: pointer; font-family: var(--font);
+  font-size: var(--fs-sm); color: var(--text2); transition: background .12s;
+}
+.toolchips-head:hover { background: var(--bg-gray); }
+.toolchips-head b { font-family: var(--mono); font-weight: 500; color: var(--text); }
+.toolchips-head .chev { color: var(--text3); flex-shrink: 0; transition: transform .25s cubic-bezier(.23,1,.32,1); }
+.toolchips.open .toolchips-head .chev { transform: rotate(180deg); }
+.toolchips-body { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .3s cubic-bezier(.23,1,.32,1), opacity .25s; }
+.toolchips.open .toolchips-body { grid-template-rows: 1fr; opacity: 1; }
+.toolchips-body-inner { overflow: hidden; }
+.toolchips-list { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 2px 2px; }
+.toolchip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 260px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text2);
+  border-radius: 999px; padding: 3px 10px; font-size: var(--fs-sm); font-family: var(--mono);
+  box-shadow: var(--shadow-hover);
+}
+.toolchip .tn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 500; }
+.toolchip .ok { color: var(--green); flex-shrink: 0; }
+.toolchip .err { color: var(--red); flex-shrink: 0; }
+.toolchip .ms { color: var(--text3); font-size: var(--fs-xs); flex-shrink: 0; }
+
+/* --- 流式文本（Beautiful UI Streaming Text 移植：光标 + 动作行）--- */
+.stext p { font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; margin: 0; }
+.stext .cursor {
+  display: inline-block; width: 2px; height: 12px; margin-left: 2px; vertical-align: -1px;
+  background: var(--text); border-radius: 1px; animation: stext-blink 1s steps(2, start) infinite;
+}
+@keyframes stext-blink { 50% { opacity: 0; } }
+.stext-actions { display: flex; align-items: center; gap: 2px; margin-top: 6px; }
+.stext-act {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border: none; background: none;
+  color: var(--text3); border-radius: 6px; cursor: pointer;
+  font-family: var(--font); font-size: var(--fs-sm);
+  transition: background .12s, color .12s;
+}
+.stext-act:hover { background: var(--bg-gray); color: var(--text2); }
+.stext-act.copied { color: var(--green); }
+
+/* --- 会话流式尾巴（StreamingText 容器）--- */
+.chat-stream { max-width: 78%; padding: 2px 2px 4px; }
+.sess-stream { padding: 6px 2px; color: var(--text2); }

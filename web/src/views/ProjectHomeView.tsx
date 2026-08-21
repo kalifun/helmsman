@@ -10,6 +10,7 @@ import {
 import { StatusPill } from '../components/StatusPill';
 import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
+import { TaskRows, type TaskRowItem } from '../components/TaskRows';
 import { RemoveProjectModal } from '../components/modals/RemoveProjectModal';
 
 export function ProjectHomeView({ pid }: { pid: string }) {
@@ -62,27 +63,43 @@ export function ProjectHomeView({ pid }: { pid: string }) {
         <div className="ph-col">
           <div className="ph-sec">
             <div className="ph-sec-t">需要你处理</div>
-            {failed.length ? failed.map((c) => (
-              <div key={c.id} className="ph-item fl" data-card={c.id} onClick={() => openDetail(pid, c.id, 'comments')}>
-                <StatusPill status="Failed" />
-                <span className="at">{c.title || c.id.slice(0, 12)}</span>
-                <span className="aq">{lastText(c)}</span>
-                <Button mini variant="ghost" onClick={(e) => { e.stopPropagation(); toast('重跑 = fork 新执行代次（卡详情页操作）'); }}>重跑</Button>
-                <Button mini onClick={(e) => { e.stopPropagation(); openDetail(pid, c.id, 'comments'); }}>查看</Button>
-              </div>
-            )) : <div className="ph-empty">没有需要你处理的任务</div>}
+            {failed.length ? (
+              <TaskRows
+                items={failed.map<TaskRowItem>((c) => {
+                  const e = latestExecution(c);
+                  return {
+                    id: c.id,
+                    title: c.title || c.id.slice(0, 12),
+                    status: 'failed',
+                    meta: `执行 ×${c.execution_count ?? Object.keys(c.executions).length}`,
+                    detail: e && e.activities.length
+                      ? [{ label: '最后活动', value: activityText(e.activities[e.activities.length - 1]).slice(0, 60) }]
+                      : undefined,
+                    onClick: () => openDetail(pid, c.id, 'comments'),
+                  };
+                })}
+              />
+            ) : <div className="ph-empty">没有需要你处理的任务</div>}
             <div className="ph-hint2">待确认 = 目标契约（approval 缝 · P0 未开）</div>
           </div>
 
           <div className="ph-sec">
             <div className="ph-sec-t">正在发生</div>
-            {running.length ? running.map((c) => (
-              <div key={c.id} className="ph-item rn" onClick={() => openDetail(pid, c.id, 'comments')}>
-                <span className="dot Running" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--blue)', animation: 'pulse 1.6s infinite' }} />
-                <span className="at">{c.title || c.id.slice(0, 12)}</span>
-                <span className="aq">{lastText(c)}</span>
-              </div>
-            )) : <div className="ph-empty">没有正在执行的任务</div>}
+            {running.length ? (
+              <TaskRows
+                items={running.map<TaskRowItem>((c) => {
+                  const e = latestExecution(c);
+                  return {
+                    id: c.id,
+                    title: c.title || c.id.slice(0, 12),
+                    status: 'running',
+                    progress: e?.steps ?? e?.turns,
+                    meta: lastText(c),
+                    onClick: () => openDetail(pid, c.id, 'comments'),
+                  };
+                })}
+              />
+            ) : <div className="ph-empty">没有正在执行的任务</div>}
           </div>
 
           <div className="ph-sec">

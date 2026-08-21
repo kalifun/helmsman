@@ -6,6 +6,8 @@ import { useUi, writeHash } from '../store/ui';
 import { useProjection, type TaskState } from '../store/projection';
 import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
+import { ToolChips, type ToolChip } from '../components/ToolChips';
+import { StreamingText } from '../components/StreamingText';
 
 interface KbHit { id: string; title: string; summary: string }
 
@@ -40,6 +42,7 @@ export function SessionView({ pid }: { pid: string }) {
   }, [pid, sid]);
 
   const task: TaskState | undefined = sid ? chats[sid] : undefined;
+  const stream = useProjection((s) => (sid ? s.streams[sid] : undefined));
 
   // 底部锚定
   useEffect(() => {
@@ -93,6 +96,34 @@ export function SessionView({ pid }: { pid: string }) {
     if ('Text' in a && a.Text?.text) rows.push({ who: 'agent', text: a.Text.text });
   });
 
+  // 工具调用汇总（ToolStart 与紧随的 ToolResult 配对 → 折叠 chips）
+  const toolCalls: ToolChip[] = (() => {
+    const out: ToolChip[] = [];
+    const acts = task?.activities ?? [];
+    let i = 0;
+    while (i < acts.length) {
+      const a = acts[i];
+      if ('ToolStart' in a) {
+        const chip: ToolChip = { id: i, name: a.ToolStart.name, ok: true };
+        let j = i + 1;
+        const next = j < acts.length ? acts[j] : null;
+        if (next && 'ToolResult' in next) {
+          const tr = next.ToolResult;
+          chip.ok = !tr.is_error;
+          const sa = a.ToolStart.at;
+          const ta = tr.at;
+          if (sa != null && ta != null) chip.ms = Math.max(0, ta - sa);
+          j++;
+        }
+        out.push(chip);
+        i = j;
+      } else {
+        i++;
+      }
+    }
+    return out;
+  })();
+
   return (
     <div id="chatview">
       <div className="chat-area" ref={areaRef}>
@@ -115,6 +146,16 @@ export function SessionView({ pid }: { pid: string }) {
             </div>
           ))
         )}
+        {toolCalls.length > 0 ? (
+          <div className="chat-stream">
+            <ToolChips calls={toolCalls} messages={rows.filter((r) => r.who === 'agent').length} defaultOpen={task?.status === 'Running'} />
+          </div>
+        ) : null}
+        {stream ? (
+          <div className="chat-stream">
+            <StreamingText text={stream} streaming />
+          </div>
+        ) : null}
         {task?.status === 'Running' && rows.length > 0 ? <div className="chat-typing">agent 思考中…</div> : null}
       </div>
       <div className="chat-bar">

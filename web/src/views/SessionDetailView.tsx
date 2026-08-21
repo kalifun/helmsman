@@ -10,6 +10,7 @@ import { Button } from '../components/Button';
 import { TrajectoryView } from './TrajectoryView';
 import { Markdown } from '../components/Markdown';
 import { Thinking, type ThinkRow } from '../components/Thinking';
+import { StreamingText } from '../components/StreamingText';
 
 type SessionTab = 'chat' | 'trajectory';
 
@@ -172,7 +173,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
           })}
           {stream ? (
             <div className="sess-row">
-              <div className="sess-bub dim">▌ {stream}</div>
+              <StreamingText text={stream} streaming className="sess-stream" />
             </div>
           ) : null}
         </div>
