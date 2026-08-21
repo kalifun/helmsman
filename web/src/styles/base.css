@@ -4,7 +4,7 @@
  *
  * ★ 换装纪律（约束记录，见 docs-archive/skin-system-v1.md）：
  *   未来 Helmsman 要支持"换装"（皮肤 = token 覆盖 + CSS 注入）。因此：
- *   1) 视觉属性一律走 CSS 变量（--canvas/--text/--r-*/--sp-* 等），禁止硬编码色值（#fff/rgba）；
+ *   1) 视觉属性一律走 CSS 变量（--canvas/--text/--r-* / --sp-* 等），禁止硬编码色值（#fff/rgba）；
  *   2) 布局尺寸（宽/高/间距）优先变量或相对单位，方便皮肤覆盖；
  *   3) 组件样式集中在 base.css 的可识别区块，不散落在 JSX/内联 style 里；
  *   4) 不引入 Tailwind utility 类（样式散在类名里，皮肤无法覆盖）。
