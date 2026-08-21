@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Icon, type IconName } from './icons';
 import { Markdown } from './Markdown';
 import { AcceptanceEvidence } from './AcceptanceEvidence';
+import { RecommendationCard } from './RecommendationCard';
 import type { ApprovalItem } from '../api/client';
 
 export const KIND_LABEL: Record<ApprovalItem['kind'], string> = {
@@ -39,6 +40,7 @@ export function ApprovalCard({ item: a, onDecide }: ApprovalCardProps) {
   const [comment, setComment] = useState('');
   const [remember, setRemember] = useState(false);
   const [pending, setPending] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   const decide = async (outcome: 'approved' | 'rejected', c = comment, r = remember) => {
     if (pending) return;
@@ -74,16 +76,19 @@ export function ApprovalCard({ item: a, onDecide }: ApprovalCardProps) {
         <div className="q-text">{a.reason || '（无原因说明）'}</div>
       </div>
 
-      {a.policy_suggestion ? (
-        <button
-          type="button"
-          className="appr-suggest"
-          onClick={() => void decide(a.policy_suggestion!.outcome, '按历史策略执行', true)}
-        >
-          🧠 历史策略：{a.policy_suggestion.scope === 'global' ? '项目' : a.policy_suggestion.scope}类已
-          {a.policy_suggestion.outcome === 'approved' ? '批准' : '拒绝'} {a.policy_suggestion.count} 次
-          —— 一键采用（仅本次，不静默）
-        </button>
+      {!dismissed && a.policy_suggestion ? (
+        <div className="appr-payload" style={{ paddingTop: 10 }}>
+          <RecommendationCard
+            compact
+            title={`历史策略建议 · ${a.policy_suggestion.scope === 'global' ? '项目' : a.policy_suggestion.scope}类已${a.policy_suggestion.outcome === 'approved' ? '批准' : '拒绝'} ${a.policy_suggestion.count} 次`}
+            description="一键采用（仅本次，不静默）"
+            confidence={a.policy_suggestion.count >= 3 ? 'high' : a.policy_suggestion.count === 2 ? 'needs-review' : 'no-signal'}
+            acceptLabel="采用"
+            alternativeLabel="不采用"
+            onAccept={() => void decide(a.policy_suggestion!.outcome, '按历史策略执行', true)}
+            onAlternative={() => setDismissed(true)}
+          />
+        </div>
       ) : null}
 
       {a.kind === 'acceptance' ? <AcceptanceEvidence payload={a.payload} /> : null}

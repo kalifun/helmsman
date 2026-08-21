@@ -1384,3 +1384,64 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 /* --- 会话流式尾巴（StreamingText 容器）--- */
 .chat-stream { max-width: 78%; padding: 2px 2px 4px; }
 .sess-stream { padding: 6px 2px; color: var(--text2); }
+
+/* --- 命令搜索（Beautiful UI Search 移植：滑动高亮 + 实时过滤 + 空状态）--- */
+.searchbox {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-hover); overflow: hidden;
+}
+.searchbox-input { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.searchbox-input .sic { color: var(--text3); flex-shrink: 0; }
+.searchbox-input input {
+  flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+  color: var(--text); font-size: 13px; font-family: var(--font);
+}
+.searchbox-input input::placeholder { color: var(--text3); }
+.searchbox-menu { position: relative; padding: 4px; }
+.searchbox-glide {
+  position: absolute; left: 4px; right: 4px; border-radius: 6px;
+  background: var(--bg-gray);
+  transition: top .22s cubic-bezier(.23,1,.32,1), height .22s cubic-bezier(.23,1,.32,1), opacity .15s;
+  pointer-events: none;
+}
+.searchbox-row {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 32px;
+  padding: 0 8px; border: none; background: none; border-radius: 6px;
+  text-align: left; font-family: var(--font); font-size: 13px; color: var(--text); cursor: pointer;
+}
+.searchbox-row .sub { margin-left: auto; font-size: 11px; color: var(--text3); white-space: nowrap; font-family: var(--mono); flex-shrink: 0; }
+.searchbox-empty { padding: 14px 10px; font-size: var(--fs-sm); color: var(--text3); }
+
+/* --- 推荐卡（Beautiful UI Recommendation Card 移植：置信度计量条 + 选项 + Accept）--- */
+.rec {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-hover); overflow: hidden;
+}
+.rec-pad { padding: var(--sp-3) 14px; }
+.rec-title { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.rec-desc { margin-top: 5px; font-size: var(--fs-md); line-height: 1.6; color: var(--text2); }
+.rec-desc code {
+  border-radius: 6px; padding: 1px 6px; font-family: var(--mono); font-size: 12px;
+  background: var(--bg-blue); color: var(--blue);
+}
+.rec-meter { display: inline-flex; align-items: flex-end; gap: 2px; }
+.rec-meter i { width: 4px; border-radius: 999px; height: 10px; background: var(--line2); }
+.rec-meter[data-conf="high"] i.on { background: var(--green); }
+.rec-meter[data-conf="needs-review"] i.on { background: var(--yellow); }
+.rec-options { border-top: 1px solid var(--line); background: var(--surface2); padding: 6px 8px; }
+.rec-opt-head { padding: 4px 6px 5px; font-size: 11px; font-weight: 500; color: var(--text3); }
+.rec-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 6px; border: none; background: none; border-radius: 7px;
+  text-align: left; font-family: var(--font); cursor: pointer; transition: background .1s;
+}
+.rec-opt:hover { background: var(--bg-gray); }
+.rec-opt .ol { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--text); }
+.rec-opt .ot { font-size: 11px; color: var(--text3); white-space: nowrap; }
+.rec-footer {
+  display: flex; align-items: center; gap: 10px;
+  border-top: 1px solid var(--line); background: var(--surface2); padding: 10px 14px;
+}
+.rec-conf { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 500; color: var(--text2); }
+.rec-actions { margin-left: auto; display: flex; gap: 8px; }
