@@ -11,6 +11,7 @@ import { TrajectoryView } from './TrajectoryView';
 import { Markdown } from '../components/Markdown';
 import { Thinking, type ThinkRow } from '../components/Thinking';
 import { StreamingText } from '../components/StreamingText';
+import { LoadingState } from '../components/LoadingState';
 
 type SessionTab = 'chat' | 'trajectory';
 
@@ -147,7 +148,11 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
 
       {tab === 'chat' ? (
         <div className="sd-chat" ref={scrollRef}>
-          {messages.length === 0 && !stream && <div className="ph-empty">暂无消息（引擎执行中或未开始）</div>}
+          {messages.length === 0 && !stream && (
+            <div className="ph-empty">
+              {running ? <LoadingState label="引擎思考中…" /> : '暂无消息（引擎执行中或未开始）'}
+            </div>
+          )}
           {messages.map((m, i) => {
             if (m.kind === 'user') {
               return (

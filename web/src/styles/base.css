@@ -1446,3 +1446,51 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 }
 .rec-conf { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 500; color: var(--text2); }
 .rec-actions { margin-left: auto; display: flex; gap: 8px; }
+
+/* --- 加载状态（Beautiful UI Loading State 移植：像素网格 + shimmer + 计时）--- */
+.loading { display: inline-flex; align-items: center; gap: 10px; }
+.loading-grid { display: grid; grid-template-columns: repeat(3, 4px); gap: 1.5px; }
+.loading-grid i {
+  width: 4px; height: 4px; border-radius: 1px; background: var(--text);
+  opacity: .15; animation: loading-pixel .65s ease-in-out infinite;
+}
+@keyframes loading-pixel { 0%, 100% { opacity: .15; } 50% { opacity: .9; } }
+.loading-label {
+  font-size: var(--fs-md); font-weight: 500;
+  background-image: linear-gradient(90deg, var(--text3) 35%, var(--text) 50%, var(--text3) 65%);
+  background-size: 200% 100%; background-clip: text; -webkit-background-clip: text; color: transparent;
+  animation: think-shimmer 1.4s linear infinite;
+}
+.loading-time { font-family: var(--mono); font-size: 12px; color: var(--text3); font-variant-numeric: tabular-nums; }
+
+/* --- 改动表（Beautiful UI Diff Table 移植：AI 提议的表格改动）--- */
+.difftable {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-hover); overflow: hidden;
+}
+.difftable-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 12px; border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm); font-weight: 500; color: var(--text);
+}
+.difftable table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.difftable th {
+  text-align: left; font-size: 11px; font-weight: 500; color: var(--text3);
+  padding: 6px 12px; border-bottom: 1px solid var(--line);
+}
+.difftable td { padding: 6px 12px; font-size: var(--fs-sm); border-bottom: 1px solid var(--line); }
+.difftable tr:last-child td { border-bottom: none; }
+.difftable tbody tr { transition: background .15s; }
+.difftable tbody tr:hover { background: var(--bg-gray); }
+.difftable tbody tr.sel { background: var(--bg-gray); box-shadow: inset 0 0 0 1px var(--blue); }
+.difftable .cell { font-variant-numeric: tabular-nums; }
+.difftable .cell.add { color: var(--green); }
+.difftable .cell.del { color: var(--red); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.difftable .cell.mod { color: var(--yellow); }
+.difftable .chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  border-radius: 999px; background: var(--surface2); padding: 1px 8px;
+  font-size: 11px; font-weight: 500; color: var(--text2);
+}
+.difftable .chip .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--blue); }
+.difftable-foot { padding: 7px 12px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 11px; color: var(--text3); }

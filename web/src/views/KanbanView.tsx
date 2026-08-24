@@ -10,7 +10,7 @@ import {
   useProjection, cardStatus, latestExecution, cardUnmet, activityText, fmtTime,
   type CardState, type TaskState,
 } from '../store/projection';
-import { Skeleton } from '../components/Skeleton';
+import { LoadingState } from '../components/LoadingState';
 
 const COLS: { key: TaskState['status']; label: string }[] = [
   { key: 'Pending', label: '待办' },
@@ -64,18 +64,8 @@ export function KanbanView({ pid }: { pid: string }) {
 
   if (loading && !all.length) {
     return (
-      <div className="kanban-wrap">
-        <div id="kanban">
-          {COLS.map((c) => (
-            <div key={c.key} className="kcol">
-              <div className="kcol-head"><span className={'dot ' + c.key} />{c.label}<span className="count">—</span></div>
-              <div className="kcol-body">
-                <Skeleton height={96} style={{ marginBottom: 8 }} />
-                <Skeleton height={96} style={{ marginBottom: 8 }} />
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="kanban-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <LoadingState label="加载看板…" />
       </div>
     );
   }

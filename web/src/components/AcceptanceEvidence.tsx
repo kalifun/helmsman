@@ -1,4 +1,6 @@
 // 职责：便宜验收证据 —— git 改动快照 + 验收命令结果。批复队列与抽屉共用。
+// diff.stat（git diff --stat）解析为 DiffTable（Beautiful UI 移植）：文件 | 行数 | +增 | -删。
+import { DiffTable, parseDiffStat } from './DiffTable'
 export function AcceptanceEvidence({ payload }: { payload: Record<string, unknown> }) {
   const criteria = typeof payload.criteria === 'string' && payload.criteria.trim() ? payload.criteria : null
   const verify = asVerify(payload.verify)
@@ -58,14 +60,34 @@ export function AcceptanceEvidence({ payload }: { payload: Record<string, unknow
             {!diff.error && !diff.dirty ? <span className="tag ev-pass">干净</span> : null}
           </div>
           {diff.error ? <div className="ev-err">{diff.error}</div> : null}
-          {diff.files.length > 0 ? (
+          {!diff.error && diff.stat ? renderDiffStat(diff.stat) : null}
+          {!diff.error && diff.files.length > 0 ? (
             <ul className="ev-files">
               {diff.files.map((f) => <li key={f}>{f}</li>)}
             </ul>
           ) : null}
-          {diff.stat ? <pre className="ev-pre">{diff.stat}</pre> : null}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** diffstat → DiffTable（解析失败回退原始文本） */
+function renderDiffStat(stat: string) {
+  const parsed = parseDiffStat(stat)
+  if (parsed.rows.length === 0) return <pre className="ev-pre">{stat}</pre>
+  return (
+    <div style={{ marginTop: 8 }}>
+      <DiffTable
+        columns={[
+          { key: 'file', label: '文件', width: '52%' },
+          { key: 'count', label: '行数', width: '16%' },
+          { key: 'add', label: '+ 增', width: '16%' },
+          { key: 'del', label: '- 删', width: '16%' },
+        ]}
+        rows={parsed.rows}
+        footer={parsed.footer}
+      />
     </div>
   )
 }
