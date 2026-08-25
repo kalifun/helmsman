@@ -9,6 +9,7 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 import { ToolChips, type ToolChip } from '../components/ToolChips';
 import { StreamingText } from '../components/StreamingText';
+import { LoadingState } from '../components/LoadingState';
 import { Markdown } from '../components/Markdown';
 import { ChatPanel } from '../components/ChatPanel';
 import { PromptBar, type PromptBarHandle, type SlashCommand } from '../components/PromptBar';
@@ -135,6 +136,14 @@ export function SessionView({ pid }: { pid: string }) {
   })();
 
   const offline = conn !== 'online';
+  const copyOut = (t: string) => {
+    void navigator.clipboard.writeText(t).then(() => toast('已复制')).catch(() => toast('复制失败'));
+  };
+  const sources = toolCalls.map((c) => ({ id: c.id, label: c.name }));
+  const followups = hasThread ? [
+    { id: 'promote', label: '提升为任务', onClick: () => setPromoteOpen(true) },
+    { id: 'save', label: '存入知识库', onClick: () => void saveKb() },
+  ] : undefined;
 
   return (
     <div id="chatview">
@@ -181,8 +190,7 @@ export function SessionView({ pid }: { pid: string }) {
         >
           {!sid ? (
             <div className="chat-empty">
-              <Icon name="chat" className="ic" style={{ width: 26, height: 26, color: 'var(--text3)' }} />
-              <div className="t">创建会话中…</div>
+              <LoadingState variant="dots" label="创建会话中…" />
             </div>
           ) : rows.length === 0 ? (
             <div className="chat-empty">
@@ -196,7 +204,17 @@ export function SessionView({ pid }: { pid: string }) {
                 {m.who === 'user' ? (
                   <div className="chat-user">{m.text}</div>
                 ) : (
-                  <div className="chat-agent"><Markdown text={m.text} /></div>
+                  <div className="chat-agent">
+                    <Markdown text={m.text} />
+                    {i === rows.length - 1 && !stream ? (
+                      <StreamingText
+                        copyValue={m.text}
+                        onCopy={copyOut}
+                        sources={sources}
+                        followups={followups}
+                      />
+                    ) : null}
+                  </div>
                 )}
               </div>
             ))
@@ -208,7 +226,7 @@ export function SessionView({ pid }: { pid: string }) {
           ) : null}
           {stream ? (
             <div className="chat-turn">
-              <StreamingText text={stream} streaming />
+              <StreamingText text={stream} streaming sources={sources} onCopy={copyOut} />
             </div>
           ) : null}
         </SelectionActions>

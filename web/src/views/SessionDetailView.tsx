@@ -138,6 +138,21 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
 
   const st = task ? effectiveStatus(task) : 'Pending';
   const running = task?.status === 'Running';
+  const copyOut = (t: string) => {
+    void navigator.clipboard.writeText(t).then(() => toast('已复制')).catch(() => toast('复制失败'));
+  };
+  const waitingFollow = task?.waiting ? [
+    { id: 'approve', label: '批准继续', onClick: () => { void send('批复：批准继续'); } },
+    { id: 'revise', label: '需要修改', onClick: () => { void send('批复：需要修改'); } },
+  ] : undefined;
+  const toolSources = messages
+    .flatMap((x) => (x.kind === 'think' ? (x.rows ?? []) : []))
+    .filter((r) => r.kind === 'tool' && r.name)
+    .reduce<{ id: string; label: string }[]>((acc, r) => {
+      const label = r.name as string;
+      if (!acc.some((s) => s.label === label)) acc.push({ id: String(r.id), label });
+      return acc;
+    }, []);
   const commands: SlashCommand[] = [
     { id: 'approve', label: '批准继续', hint: '批复', run: () => { void send('批复：批准继续'); } },
     { id: 'revise', label: '需要修改', hint: '批复', run: () => { void send('批复：需要修改'); } },
@@ -174,7 +189,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
           >
             {messages.length === 0 && !stream && (
               <div className="ph-empty">
-                {running ? <LoadingState label="引擎思考中…" /> : '暂无消息（引擎执行中或未开始）'}
+                {running ? <LoadingState variant="orbit" label="引擎思考中…" startedAt={task?.started_at} /> : '暂无消息（引擎执行中或未开始）'}
               </div>
             )}
             {messages.map((m, i) => {
@@ -192,17 +207,31 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
                   </div>
                 );
               }
+              const last = i === messages.length - 1;
               return (
                 <div key={m.id} className="sess-row">
                   <div className={'sess-bub md-bub' + ((m.text || '').indexOf('失败') === 0 ? ' err' : '')}>
                     <Markdown text={m.text ?? ''} />
+                    {last && !stream ? (
+                      <StreamingText
+                        copyValue={m.text}
+                        onCopy={copyOut}
+                        sources={toolSources}
+                        followups={waitingFollow}
+                      />
+                    ) : null}
                   </div>
                 </div>
               );
             })}
+            {!stream && waitingFollow && messages.length > 0 && messages[messages.length - 1].kind !== 'text' ? (
+              <div className="sess-row">
+                <StreamingText followups={waitingFollow} />
+              </div>
+            ) : null}
             {stream ? (
               <div className="sess-row">
-                <StreamingText text={stream} streaming className="sess-stream" />
+                <StreamingText text={stream} streaming className="sess-stream" onCopy={copyOut} />
               </div>
             ) : null}
           </SelectionActions>

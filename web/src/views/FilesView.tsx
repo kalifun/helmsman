@@ -1,6 +1,7 @@
 // 职责：文件视图 —— 项目工作区文件树（活状态现取）。GET /api/projects/:pid/files（服务端安全过滤）。
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
+import { LoadingState } from '../components/LoadingState';
 
 interface FNode { name: string; type: 'file' | 'dir'; children?: FNode[] }
 
@@ -45,7 +46,7 @@ export function FilesView({ pid }: { pid: string }) {
       <div className="fx-side">
         <div className="fx-tree">
           {loading ? (
-            <div className="empty-state"><div className="t">加载中…</div></div>
+            <div className="empty-state"><LoadingState variant="dots" label="加载文件树…" /></div>
           ) : tree ? renderNode(tree, tree.name) : (
             <div className="empty-state">
               <Icon name="folder" />

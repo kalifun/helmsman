@@ -65,7 +65,7 @@ export function KanbanView({ pid }: { pid: string }) {
   if (loading && !all.length) {
     return (
       <div className="kanban-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <LoadingState label="加载看板…" />
+        <LoadingState variant="drive" label="加载看板…" />
       </div>
     );
   }

@@ -1,36 +1,70 @@
 // 职责：流式文本（Beautiful UI「Streaming Text」移植，MIT © Shane Levine）——
-//   流式内容 + 闪烁光标；streaming 结束后显示动作行（复制 / 重试）。
-//   纯展示组件：复制/重试经回调上抛（toast 由调用方负责）。
+//   流式内容 + 闪烁光标；结束后可带 inline sources、动作行（复制/重试）、Follow-ups。
+//   纯展示：动作经回调上抛。
 import { useEffect, useState } from 'react';
+
+export interface StreamChip {
+  id: string | number;
+  label: string;
+  onClick?: () => void;
+}
 
 interface Props {
   text?: string;
   streaming?: boolean;
   onCopy?: (text: string) => void;
+  /** 复制内容；默认用 text。Markdown 已在上方时仍可复制原文 */
+  copyValue?: string;
   onRetry?: () => void;
+  sources?: StreamChip[];
+  followups?: StreamChip[];
   className?: string;
 }
 
-export function StreamingText({ text = '', streaming = false, onCopy, onRetry, className = '' }: Props) {
+export function StreamingText({
+  text = '', streaming = false, onCopy, copyValue, onRetry, sources, followups, className = '',
+}: Props) {
   const [copied, setCopied] = useState(false);
+  const payload = copyValue ?? text;
 
-  // 内容变化后重置 copied 标记
-  useEffect(() => setCopied(false), [text]);
+  useEffect(() => setCopied(false), [payload]);
 
   const copy = () => {
-    onCopy?.(text);
+    onCopy?.(payload);
     setCopied(true);
   };
 
+  const showBody = !!text || streaming;
+  const showActions = !streaming && ((!!onCopy && !!payload) || !!onRetry);
+  const showSources = !streaming && !!sources && sources.length > 0;
+
   return (
     <div className={'stext' + (className ? ' ' + className : '')}>
-      <p>
-        {text}
-        {streaming ? <span className="cursor" aria-hidden="true" /> : null}
-      </p>
-      {!streaming && text ? (
+      {showBody ? (
+        <p>
+          {text}
+          {streaming ? <span className="cursor" aria-hidden="true" /> : null}
+        </p>
+      ) : null}
+      {showSources && sources ? (
+        <div className="stext-sources">
+          <span className="stext-src-n">{sources.length} 个来源</span>
+          {sources.slice(0, 6).map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="stext-src"
+              onClick={s.onClick}
+              disabled={!s.onClick}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {showActions ? (
         <div className="stext-actions">
-          {onCopy ? (
+          {onCopy && payload ? (
             <button
               type="button"
               className={'stext-act' + (copied ? ' copied' : '')}
@@ -56,6 +90,14 @@ export function StreamingText({ text = '', streaming = false, onCopy, onRetry, c
               </svg>
             </button>
           ) : null}
+        </div>
+      ) : null}
+      {!streaming && followups && followups.length > 0 ? (
+        <div className="stext-follow">
+          <span className="stext-follow-lab">追问</span>
+          {followups.map((f) => (
+            <button key={f.id} type="button" className="stext-follow-btn" onClick={f.onClick}>{f.label}</button>
+          ))}
         </div>
       ) : null}
     </div>

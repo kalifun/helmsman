@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getMetrics, type MetricRow } from '../api/client';
 import { InsightCards, type InsightPage } from '../components/InsightCards';
+import { LoadingState } from '../components/LoadingState';
 import { useProjection } from '../store/projection';
 import { useUi, writeHash } from '../store/ui';
 
@@ -125,7 +126,7 @@ export function MetricsView({ pid }: { pid: string }) {
   }, [rows]);
 
   if (err) return <div id="metrics" className="m-empty">度量加载失败：{err}</div>;
-  if (!m) return <div id="metrics" className="m-empty">加载中…</div>;
+  if (!m) return <div id="metrics" className="m-empty"><LoadingState variant="pixel" label="加载度量…" /></div>;
   if (m.total === 0) return <div id="metrics" className="m-empty">暂无执行度量 —— 跑几个任务后这里会显示成本/轮次/命中率随知识积累的曲线。</div>;
 
   const yuan = (v: number) => `¥${v >= 0.01 ? v.toFixed(3) : v.toFixed(4)}`;

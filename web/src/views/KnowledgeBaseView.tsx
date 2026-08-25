@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
 import { Button } from '../components/Button';
 import { RecordsTable } from '../components/RecordsTable';
+import { LoadingState } from '../components/LoadingState';
 import { invalidateKbNote, listKbNotes, searchKbNotes, setKbNoteStable, type DebtStatus, type KbNoteRow } from '../api/client';
 import { relTime } from '../store/projection';
 
@@ -117,7 +118,7 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
           {error ? (
             <div className="empty-state"><div className="t">加载失败</div><div className="d">{error}</div></div>
           ) : loading && notes.length === 0 ? (
-            <div className="empty-state"><div className="d">加载中…</div></div>
+            <div className="empty-state"><LoadingState variant="surfer" label="加载知识库…" /></div>
           ) : (
             <RecordsTable
               rows={visible}

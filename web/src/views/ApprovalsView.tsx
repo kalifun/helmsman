@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useUi } from '../store/ui';
 import { listApprovals, decideApproval, listPolicies, deletePolicy, listSuspendedApprovals, resumeApproval, resumeAllApprovals, type ApprovalItem, type PolicyRow } from '../api/client';
 import { ApprovalCard, KIND_LABEL } from '../components/ApprovalCard';
+import { LoadingState } from '../components/LoadingState';
 
 export function ApprovalsView({ pid }: { pid: string }) {
   const [items, setItems] = useState<ApprovalItem[]>([]);
@@ -83,7 +84,7 @@ export function ApprovalsView({ pid }: { pid: string }) {
             ))}
           </div>
         ) : null}
-        {loading && items.length === 0 && <p className="muted">加载中…</p>}
+        {loading && items.length === 0 && <LoadingState variant="orbit" label="加载批复…" />}
         {!loading && items.length === 0 && (
           <p className="muted">现在没有要批的事项。任务停下等人时会出现在这里。</p>
         )}

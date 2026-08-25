@@ -1,20 +1,12 @@
-// 职责：ThemePicker —— 设置里的主题选择器（色板卡网格 + 跟随系统）+ 氛围档位（关闭/淡/标准/浓）。
-// 与原型 renderSettings 的 general 页签一致；主题/氛围经 localStorage 持久化（ThemeProvider）。
+// 职责：ThemePicker —— 设置里的主题选择器（色板卡网格 + 跟随系统）+ Fine-tune 微调卡（圆角 / 氛围 / 类型）。
+// 与原型 renderSettings 的 general 页签一致；主题/氛围/圆角经 localStorage 持久化（ThemeProvider）。
 import { THEMES, SYSTEM_THEME_ID } from '../theme/themes';
-import { useThemeStore, type AtmoLevel } from '../theme/ThemeProvider';
-
-const ATMO_LEVELS: { v: AtmoLevel; label: string }[] = [
-  { v: 'off', label: '关闭' },
-  { v: 'soft', label: '淡' },
-  { v: 'on', label: '标准' },
-  { v: 'strong', label: '浓' },
-];
+import { useThemeStore } from '../theme/ThemeProvider';
+import { FineTuneCard } from './FineTuneCard';
 
 export function ThemePicker() {
   const themeId = useThemeStore((s) => s.themeId);
   const setTheme = useThemeStore((s) => s.setTheme);
-  const atmo = useThemeStore((s) => s.atmo);
-  const setAtmo = useThemeStore((s) => s.setAtmo);
 
   return (
     <>
@@ -43,16 +35,8 @@ export function ThemePicker() {
           <span className="en">system</span>
         </button>
       </div>
-      <div className="set-row" style={{ marginTop: 14 }}>
-        <div className="lbl">
-          背景氛围
-          <div className="desc">每套主题的氛围层：光晕 / 星空 / 光斑</div>
-        </div>
-        <select value={atmo} onChange={(e) => setAtmo(e.target.value as AtmoLevel)}>
-          {ATMO_LEVELS.map((x) => (
-            <option key={x.v} value={x.v}>{x.label}</option>
-          ))}
-        </select>
+      <div style={{ marginTop: 14 }}>
+        <FineTuneCard />
       </div>
     </>
   );
