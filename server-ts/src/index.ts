@@ -10,7 +10,7 @@ import { readdirSync, renameSync, rmSync, mkdirSync, openSync, readSync, closeSy
 import { join, basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import { startEngine } from './engine.ts'
 import { Storage, parseIdArray, policySuggestion } from './storage.ts'
 import {
@@ -2108,26 +2108,55 @@ function readProjectFile(workspace: string, rel: string): {
   return { path: rel, name: basename(full), size, content: buf.toString('utf8'), truncated: false, binary: false }
 }
 
-/** 仓库活状态：分支 + 工作区修改（dirty/staged/untracked/conflicted）+ 远端 ahead/behind + 最近提交。非 git 仓库给 error。 */
+/** 仓库活状态：分支 + 改动列表（VSCode 源码管理风格）+ 分支列表 + 提交历史 + ahead/behind。非 git 仓库给 error。 */
+export interface RepoChange { code: string; staged: boolean; path: string }
+export interface RepoBranch { name: string; current: boolean }
+export interface RepoCommit { hash: string; when: string; subject: string }
 function repoStatus(workspace: string): {
   branch: string; dirty: number; staged: number; untracked: number; conflicted: number
-  ahead: number; behind: number; lastCommit: string; error?: string
+  ahead: number; behind: number; lastCommit: string
+  changes: RepoChange[]; branches: RepoBranch[]; history: RepoCommit[]; error?: string
 } {
-  const git = (args: string[], timeoutMs = 5000): string => {
+  // execFileSync 不经 shell：避免 %(refname:short) 这类参数被 sh 解析（%() 语法错误）
+  const git = (args: string[], opts: { timeoutMs?: number; trim?: boolean } = {}): string => {
     try {
-      return execSync('git ' + args.join(' '), { cwd: workspace, encoding: 'utf8', timeout: timeoutMs }).trim()
+      const out = execFileSync('git', args, { cwd: workspace, encoding: 'utf8', timeout: opts.timeoutMs ?? 5000 })
+      return opts.trim === false ? out : out.trim()
     } catch { return '' }
   }
   if (!git(['rev-parse', '--is-inside-work-tree'])) {
-    return { branch: '', dirty: 0, staged: 0, untracked: 0, conflicted: 0, ahead: 0, behind: 0, lastCommit: '', error: 'not a git repo' }
+    return { branch: '', dirty: 0, staged: 0, untracked: 0, conflicted: 0, ahead: 0, behind: 0, lastCommit: '', changes: [], branches: [], history: [], error: 'not a git repo' }
   }
   const branch = git(['branch', '--show-current'])
-  const status = git(['status', '--porcelain']).split('\n').filter(Boolean)
+  const status = git(['status', '--porcelain'], { trim: false }).split('\n').filter(Boolean).map((l) => l.replace(/\r$/, ''))
   // porcelain 行格式 `XY path`：X = 暂存区状态，Y = 工作区状态；冲突时 X 或 Y 为 U（UU/AA/AU…）
   const staged = status.filter((l) => /^[MADRCU]/.test(l)).length
   const untracked = status.filter((l) => /^\?\?/.test(l)).length
   const conflicted = status.filter((l) => l.length >= 2 && (l[0] === 'U' || l[1] === 'U')).length
-  const lastCommit = git(['log', '-1', '--oneline'])
+  // 改动列表：code = 用户可见状态（M 改 / A 增 / D 删 / ? 新 / U 冲突），staged 标记
+  const changes: RepoChange[] = status.map((l) => {
+    const x = l[0] ?? ' '
+    const y = l[1] ?? ' '
+    const path = l.slice(3).replace(/^"|"$/g, '')
+    if (x === '?' && y === '?') return { code: '?', staged: false, path }
+    const conflictedFlag = x === 'U' || y === 'U'
+    if (conflictedFlag) return { code: 'U', staged: false, path }
+    const code = y !== ' ' ? y : x
+    return { code, staged: x !== ' ' && x !== '?', path }
+  })
+  // 分支列表（含当前分支标记；过滤任务隔离区 worktree 分支 —— helmsman/card-… 内部噪音）
+  const branches: RepoBranch[] = git(['branch', '--format=%(refname:short)'])
+    .split('\n').filter(Boolean)
+    .filter((name) => !name.startsWith('helmsman/card-'))
+    .map((name) => ({ name, current: name === branch }))
+  // 提交历史（最近 6 条：hash / 相对时间 / subject）
+  const history: RepoCommit[] = git(['log', '-6', '--format=%h%x09%ar%x09%s'])
+    .split('\n').filter(Boolean)
+    .map((l) => {
+      const [hash, when, ...rest] = l.split('\t')
+      return { hash, when: when ?? '', subject: rest.join('\t') }
+    })
+  const lastCommit = history[0] ? `${history[0].hash} ${history[0].subject}` : ''
   // ahead/behind：有 upstream 时 rev-list --left-right --count HEAD...@{u} → "ahead\tbehind"
   let ahead = 0
   let behind = 0
@@ -2136,7 +2165,7 @@ function repoStatus(workspace: string): {
     const m = ab.match(/(\d+)\s+(\d+)/)
     if (m) { ahead = Number(m[1]); behind = Number(m[2]) }
   }
-  return { branch, dirty: status.length, staged, untracked, conflicted, ahead, behind, lastCommit }
+  return { branch, dirty: status.length, staged, untracked, conflicted, ahead, behind, lastCommit, changes, branches, history }
 }
 
 /** 构造一个 WebSocket 文本帧（服务端 → 客户端，未掩码）。 */

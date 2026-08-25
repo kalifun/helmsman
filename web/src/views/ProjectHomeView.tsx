@@ -18,7 +18,13 @@ import { listKbNotes, listApprovals, type KbNoteRow } from '../api/client';
 export function ProjectHomeView({ pid }: { pid: string }) {
   const [removeOpen, setRemoveOpen] = useState(false);
   const [kbRecent, setKbRecent] = useState<KbNoteRow[]>([]);
-  const [repo, setRepo] = useState<{ branch: string; dirty: number; staged: number; untracked: number; conflicted: number; ahead: number; behind: number; lastCommit: string; error?: string } | null>(null);
+  const [repo, setRepo] = useState<{
+    branch: string; dirty: number; staged: number; untracked: number; conflicted: number;
+    ahead: number; behind: number; lastCommit: string; error?: string;
+    changes: Array<{ code: string; staged: boolean; path: string }>;
+    branches: Array<{ name: string; current: boolean }>;
+    history: Array<{ hash: string; when: string; subject: string }>;
+  } | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const project = useProjection((s) => s.projects[pid]);
   const pending = useUi((s) => s.pendingProjects[pid]);
@@ -53,7 +59,7 @@ export function ProjectHomeView({ pid }: { pid: string }) {
       try {
         const r = await fetch(`/api/projects/${encodeURIComponent(pid)}/repo-status`);
         if (r.ok) {
-          const rs = (await r.json()) as { branch: string; dirty: number; staged: number; untracked: number; conflicted: number; ahead: number; behind: number; lastCommit: string; error?: string };
+          const rs = (await r.json()) as typeof repo;
           if (alive) setRepo(rs);
         }
       } catch { /* 仓库状态失败忽略 */ }
@@ -135,7 +141,7 @@ export function ProjectHomeView({ pid }: { pid: string }) {
             ) : repo.error ? (
               <div className="ph-empty">{repo.error === 'not a git repo' ? '不是 git 仓库' : '仓库状态不可读'}</div>
             ) : (
-              <div className="repo-status" onClick={() => goView('files')} role="button" title="查看文件">
+              <div className="repo-status">
                 <div className="repo-row">
                   <span className="tag">分支</span>
                   <b className="repo-branch">{repo.branch || '（无分支）'}</b>
@@ -154,8 +160,40 @@ export function ProjectHomeView({ pid }: { pid: string }) {
                     <span className="repo-clean">工作区干净</span>
                   )}
                 </div>
-                {repo.lastCommit ? (
-                  <div className="repo-commit">{repo.lastCommit}</div>
+                {repo.changes.length > 0 ? (
+                  <div className="repo-sec">
+                    <div className="repo-sec-t">改动</div>
+                    {repo.changes.map((c) => (
+                      <div key={c.path} className="repo-change">
+                        <span className={'repo-code ' + codeCls(c.code)} title={codeLabel(c.code)}>{c.code}</span>
+                        <span className="repo-path">{c.path}</span>
+                        {c.staged ? <span className="repo-staged-tag">已暂存</span> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {repo.branches.length > 0 ? (
+                  <div className="repo-sec">
+                    <div className="repo-sec-t">分支</div>
+                    {repo.branches.map((b) => (
+                      <div key={b.name} className={'repo-branch-item' + (b.current ? ' cur' : '')}>
+                        <span className="repo-dot">{b.current ? '●' : '○'}</span>
+                        <span className="repo-bname">{b.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {repo.history.length > 0 ? (
+                  <div className="repo-sec">
+                    <div className="repo-sec-t">提交</div>
+                    {repo.history.map((h) => (
+                      <div key={h.hash} className="repo-commit" title={h.subject}>
+                        <span className="repo-hash">{h.hash}</span>
+                        <span className="repo-subject">{h.subject}</span>
+                        <span className="repo-when">{h.when}</span>
+                      </div>
+                    ))}
+                  </div>
                 ) : null}
               </div>
             )}
@@ -211,6 +249,20 @@ export function ProjectHomeView({ pid }: { pid: string }) {
       </details>
     </div>
   );
+}
+
+/** 改动状态字母 → 颜色类（VSCode 源码管理配色） */
+function codeCls(code: string): string {
+  if (code === 'A') return 'add'
+  if (code === 'D') return 'del'
+  if (code === 'M' || code === 'R' || code === 'C') return 'mod'
+  if (code === '?') return 'new'
+  if (code === 'U') return 'conf'
+  return ''
+}
+function codeLabel(code: string): string {
+  const m: Record<string, string> = { M: '修改', A: '新增', D: '删除', R: '重命名', C: '复制', '?': '未跟踪', U: '冲突' }
+  return m[code] ?? code
 }
 
 // 抽屉打开（跨视图复用；openId = 卡 id，抽屉内选执行代次）
