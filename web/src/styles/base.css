@@ -1858,3 +1858,7 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
   background: var(--canvas); color: var(--text); font-family: var(--font);
   font-size: var(--fs-sm); padding: 4px 8px;
 }
+
+/* --- 文件预览（FilesView P2：读取接口已开）--- */
+.fx-preview { margin-top: 14px; max-width: 100%; }
+.fx-preview .codeblock { max-height: 60vh; overflow-y: auto; }

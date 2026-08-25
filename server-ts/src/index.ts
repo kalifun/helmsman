@@ -6,7 +6,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash } from 'node:crypto'
-import { readdirSync, renameSync, rmSync, mkdirSync, openSync, readSync, closeSync, statSync } from 'node:fs'
+import { readdirSync, renameSync, rmSync, mkdirSync, openSync, readSync, closeSync, statSync, readFileSync } from 'node:fs'
 import { join, basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -1119,6 +1119,21 @@ async function main(): Promise<void> {
         send(200, root)
         return
       }
+      const fileReadMatch = path.match(/^\/api\/projects\/([^/]+)\/files\/read$/)
+      if (fileReadMatch && method === 'GET') {
+        const pid = decodeURIComponent(fileReadMatch[1])
+        const p = proj.projects[pid]
+        if (!p) throw new HttpError(404, `project '${pid}' not found`)
+        const rel = url.searchParams.get('path') ?? ''
+        try {
+          const preview = readProjectFile(p.path, rel)
+          send(200, preview)
+        } catch (e) {
+          if (e instanceof Error && e.message === 'not found') throw new HttpError(404, 'file not found')
+          throw new HttpError(403, e instanceof Error ? e.message : 'read failed')
+        }
+        return
+      }
 
       // ---------- 卡 ----------
       const cardsMatch = path.match(/^\/api\/projects\/([^/]+)\/cards$/)
@@ -2057,6 +2072,32 @@ function listFileTree(dir: string, depth = 0): { name: string; type: 'file' | 'd
     } catch { /* 跳过不可读 */ }
   }
   return out
+}
+
+/** 读取项目工作区内文件（预览用）。
+ * 安全：路径解析到工作区内（防穿越）；路径段命中 SKIP/隐藏 → 拒绝；大小 ≤ 256KB（超出截断标记）；二进制（含 NUL）→ 不返回内容。 */
+const SKIP_SET = new Set(['node_modules', '.git', '.sessions', '.npm-cache', 'dist', 'research', 'docs-archive', 'design-mockups', '.DS_Store'])
+function readProjectFile(workspace: string, rel: string): {
+  path: string; name: string; size: number; content: string; truncated: boolean; binary: boolean
+} {
+  if (!rel || rel.includes('\0')) throw new Error('bad path')
+  const full = resolve(workspace, rel)
+  if (!full.startsWith(resolve(workspace) + '/') && full !== resolve(workspace)) throw new Error('path escapes workspace')
+  const segs = rel.split('/')
+  if (segs.some((s) => SKIP_SET.has(s) || s.startsWith('.'))) throw new Error('path not allowed')
+  let st: ReturnType<typeof statSync>
+  try { st = statSync(full) } catch { throw new Error('not found') }
+  if (!st.isFile()) throw new Error('not a file')
+  const size = st.size
+  if (size > 262144) {
+    return { path: rel, name: basename(full), size, content: '', truncated: true, binary: false }
+  }
+  const buf = readFileSync(full)
+  // 二进制检测：前 8KB 含 NUL
+  const head = buf.subarray(0, 8192)
+  const binary = head.includes(0)
+  if (binary) return { path: rel, name: basename(full), size, content: '', truncated: false, binary: true }
+  return { path: rel, name: basename(full), size, content: buf.toString('utf8'), truncated: false, binary: false }
 }
 
 /** 构造一个 WebSocket 文本帧（服务端 → 客户端，未掩码）。 */
