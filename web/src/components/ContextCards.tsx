@@ -11,6 +11,8 @@ export interface ChunkBadge {
 export interface ContextChunk {
   id: string | number;
   title: string;
+  /** 点击卡片（如跳转详情） */
+  onClick?: () => void;
   content?: string;
   /** 字符数（显示在标题栏右侧；不传则不显示） */
   chars?: number;
@@ -46,20 +48,24 @@ export interface ContextCardsProps {
   /** 头部计数文案；缺省显示 chunks.length */
   countLabel?: string;
   empty?: string;
+  /** 是否渲染头部标题行（默认 true；嵌入场景可关） */
+  showHead?: boolean;
 }
 
-export function ContextCards({ chunks, title = '知识块', countLabel, empty }: ContextCardsProps) {
+export function ContextCards({ chunks, title = '知识块', countLabel, empty, showHead = true }: ContextCardsProps) {
   return (
     <div className="ctx">
-      <div className="ctx-head">
-        <span className="t">{title}</span>
-        <span className="ctx-count">{countLabel ?? chunks.length}</span>
-      </div>
+      {showHead ? (
+        <div className="ctx-head">
+          <span className="t">{title}</span>
+          <span className="ctx-count">{countLabel ?? chunks.length}</span>
+        </div>
+      ) : null}
       {chunks.length === 0 && empty ? <div className="ph-empty">{empty}</div> : null}
       {chunks.map((c) => {
         const ext = c.sourceKind ? KIND_EXT[c.sourceKind.toLowerCase()] : undefined;
         return (
-          <div key={c.id} className="ctx-card">
+          <div key={c.id} className="ctx-card" onClick={c.onClick} role={c.onClick ? 'button' : undefined} style={c.onClick ? { cursor: 'pointer' } : undefined}>
             <div className="ctx-bar">
               <svg className="bar-ic" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
                 <path d="M2 4h12M2 8h12M2 12h7" />

@@ -1,7 +1,7 @@
 // 职责：项目首页 —— 状态徽章组（按卡的最新执行状态）+ 需要你处理（失败/待确认目标契约）
 // + 正在发生（运行中）+ 最近沉淀（知识库目标契约）+ 操作（新建卡/简单会话/跑全部）+ 项目设置（目标契约只读）。
 // M2.3（O1=B）：项目按卡聚合；看板卡 = 资产卡（1 卡 N 执行，状态 = 最新执行）。
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useUi, writeHash } from '../store/ui';
 import {
   useProjection, cardStatus, latestExecution, activityText,
@@ -12,9 +12,14 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 import { TaskRows, type TaskRowItem } from '../components/TaskRows';
 import { RemoveProjectModal } from '../components/modals/RemoveProjectModal';
+import { ContextCards, type ContextChunk } from '../components/ContextCards';
+import { listKbNotes, listApprovals, type KbNoteRow } from '../api/client';
 
 export function ProjectHomeView({ pid }: { pid: string }) {
   const [removeOpen, setRemoveOpen] = useState(false);
+  const [kbRecent, setKbRecent] = useState<KbNoteRow[]>([]);
+  const [fsTop, setFsTop] = useState<Array<{ name: string; type: string }>>([]);
+  const [pendingCount, setPendingCount] = useState(0);
   const project = useProjection((s) => s.projects[pid]);
   const pending = useUi((s) => s.pendingProjects[pid]);
   const cards = useProjection((s) => s.cards[pid] || {});
@@ -34,6 +39,25 @@ export function ProjectHomeView({ pid }: { pid: string }) {
     useUi.getState().setRoute({ view, openId: null, tab: 'comments' });
     writeHash(pid, view, null, 'comments');
   };
+
+  // 真实实现接入：最近沉淀（KB）/ 仓库活状态（文件树顶层）/ 待批复计数
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const [notes, approvals] = await Promise.all([listKbNotes(pid), listApprovals(pid)]);
+        if (!alive) return;
+        setKbRecent(notes.filter((n) => n.validUntil === null).sort((a, b) => b.validFrom - a.validFrom).slice(0, 4));
+        setPendingCount(approvals.length);
+      } catch { /* 首页数据失败不阻塞 */ }
+      try {
+        const r = await fetch(`/api/projects/${encodeURIComponent(pid)}/files`);
+        const root = (await r.json()) as { children?: Array<{ name: string; type: string }> };
+        if (alive) setFsTop((root.children ?? []).slice(0, 7));
+      } catch { /* 文件树失败忽略 */ }
+    })();
+    return () => { alive = false; };
+  }, [pid]);
 
   const lastText = (c: CardState): string => {
     const e = latestExecution(c);
@@ -80,7 +104,7 @@ export function ProjectHomeView({ pid }: { pid: string }) {
                 })}
               />
             ) : <div className="ph-empty">没有需要你处理的任务</div>}
-            <div className="ph-hint2">待确认 = 目标契约（approval 缝 · P0 未开）</div>
+            <div className="ph-hint2">{pendingCount > 0 ? `待批复 ${pendingCount} 项 · 批复队列查看` : '没有待批复事项'}</div>
           </div>
 
           <div className="ph-sec">
@@ -104,16 +128,40 @@ export function ProjectHomeView({ pid }: { pid: string }) {
 
           <div className="ph-sec">
             <div className="ph-sec-t">仓库</div>
-            <div className="ph-empty">仓库活状态现取</div>
-            <div className="ph-hint2">目标契约（git/workspace 接口未开 · spec §4.1 规则②）</div>
+            {fsTop.length ? (
+              <div className="ph-items">
+                {fsTop.map((f) => (
+                  <button key={f.name} className="ph-item" onClick={() => goView('files')}>
+                    <Icon name={f.type === 'dir' ? 'folder' : 'doc'} size="sm" />
+                    <span className="at">{f.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : <div className="ph-empty">仓库不可读</div>}
+            <div className="ph-hint2">工作区文件树 · 点击查看文件</div>
           </div>
         </div>
 
         <div className="ph-col">
           <div className="ph-sec">
             <div className="ph-sec-t">最近沉淀</div>
-            <div className="ph-empty">知识库为空</div>
-            <div className="ph-hint2">知识库 = 目标契约（kb 接口未开 · P0）</div>
+            {kbRecent.length ? (
+              <ContextCards
+                chunks={kbRecent.map<ContextChunk>((n) => ({
+                  id: n.id,
+                  title: n.title,
+                  content: n.content.slice(0, 2).join('\n'),
+                  chars: n.content.reduce((acc, l) => acc + l.length, 0),
+                  onClick: () => goView('kb'),
+                  sourceKind: n.source.kind,
+                  sourceRef: n.source.ref,
+                  badges: [{ label: n.trust === 'human-approved' ? '人工确认' : n.trust === 'agent-generated' ? '自动沉淀' : '未验证', tone: n.trust === 'human-approved' ? 'ok' : n.trust === 'agent-generated' ? 'info' : 'muted' }],
+                }))}
+                showHead={false}
+                empty=""
+              />
+            ) : <div className="ph-empty">知识库为空 —— 任务完成后结论自动沉淀到这里</div>}
+            <div className="ph-hint2">最近沉淀的结论 · 点击进入知识库</div>
           </div>
           <div className="ph-sec">
             <div className="ph-sec-t">操作</div>
