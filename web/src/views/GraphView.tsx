@@ -1,9 +1,10 @@
 // 职责：依赖图（DAG 预览）—— 按依赖深度分层；deps = 目标契约（建卡时指定，投影自最新执行）。
 // 节点 = 卡（状态 = 最新执行）；边 = deps 贝塞尔曲线，虚线黄 = 依赖未完成（阻塞）。
+// 视觉：Beautiful UI「Flowchart」移植（MIT © Shane Levine）—— 点阵画布 + 起点/依赖步骤卡。
 // 点击 → 详情抽屉（全部执行代次）。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUi, writeHash } from '../store/ui';
-import { useProjection, cardStatus, latestExecution, activityText, type TaskState } from '../store/projection';
+import { useProjection, cardStatus, latestExecution, activityText } from '../store/projection';
 import { StatusPill } from '../components/StatusPill';
 
 export function GraphView({ pid }: { pid: string }) {
@@ -13,6 +14,7 @@ export function GraphView({ pid }: { pid: string }) {
   const [ty, setTy] = useState(20);
   const drag = useRef<{ x: number; y: number } | null>(null);
 
+  const [hoverId, setHoverId] = useState<string | null>(null);
   const all = useMemo(() => Object.values(cards), [cards]);
   const byId = useMemo(() => cards, [cards]);
 
@@ -35,7 +37,7 @@ export function GraphView({ pid }: { pid: string }) {
     return [...m.entries()].sort((a, b) => a[0] - b[0]);
   }, [all]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const W = 224, H = 92, XG = 330, X0 = 48, YG = 114;
+  const W = 240, H = 108, XG = 330, X0 = 48, YG = 132;
   const pos = useMemo(() => {
     const p: Record<string, [number, number]> = {};
     layers.forEach(([, ids], i) => {
@@ -87,7 +89,7 @@ export function GraphView({ pid }: { pid: string }) {
                 const depCard = byId[d];
                 const blocked = !depCard || cardStatus(depCard) !== 'Done';
                 const dx = Math.max(40, (p2[0] - p1[0]) / 2);
-                return <path key={d} className={'g-edge' + (blocked ? ' blocked' : '')} d={`M${p1[0] + W},${p1[1] + H / 2} C${p1[0] + W + dx},${p1[1] + H / 2} ${p2[0] - dx},${p2[1] + H / 2} ${p2[0]},${p2[1] + H / 2}`} />;
+                return <path key={c.id + ':' + d} className={'g-edge' + (blocked ? ' blocked' : '') + (hoverId === d || hoverId === c.id ? ' hl' : '')} d={`M${p1[0] + W},${p1[1] + H / 2} C${p1[0] + W + dx},${p1[1] + H / 2} ${p2[0] - dx},${p2[1] + H / 2} ${p2[0]},${p2[1] + H / 2}`} />;
               });
             })}
           </svg>
@@ -96,18 +98,23 @@ export function GraphView({ pid }: { pid: string }) {
               const [x, y] = pos[c.id] || [0, 0];
               const st = cardStatus(c);
               const exec = latestExecution(c);
+              const deps = (exec?.deps || []).map((id) => byId[id]?.title || id.slice(0, 8)).filter(Boolean);
               return (
                 <div
                   key={c.id}
                   className={'g-card st-' + st}
                   style={{ left: x, top: y }}
+                  onMouseEnter={() => setHoverId(c.id)}
+                  onMouseLeave={() => setHoverId(null)}
                   onClick={() => {
                     useUi.getState().setRoute({ openId: c.id, tab: 'comments' });
                     writeHash(pid, 'graph', c.id, 'comments');
                   }}
                 >
+                  <div className="gc-kicker">{deps.length ? '依赖' : '起点'}</div>
                   <div className="gc-title">{c.title || c.id.slice(0, 14)}{c.milestone ? <span className="milestone-chip" style={{ marginLeft: 6 }}>{c.milestone}</span> : null}</div>
-                  <div className="gc-row"><StatusPill status={st as TaskState['status']} /></div>
+                  {deps.length ? <div className="gc-cond">若 {deps.join('、')} 完成</div> : null}
+                  <div className="gc-row"><StatusPill status={st} /></div>
                   <div className="gc-meta">
                     {exec && exec.activities.length ? activityText(exec.activities[exec.activities.length - 1]).slice(0, 22) : '—'}
                   </div>

@@ -1,6 +1,7 @@
 // 职责：Sidebar —— 项目列表（两行：名称 + 状态小字统计 / 状态点 / 折叠 / 筛选输入）+ 新建项目 + 设置入口。
 // 状态点：运行蓝 > 待确认黄 > 空闲灰；统计：运行中/失败/完成；busy 计数徽标。侧栏折叠由 App 控制 #approw.side-off。
-import { useMemo } from 'react';
+// 滑动高亮：Beautiful UI「Sidebar Nav」移植（MIT © Shane Levine）—— hover/当前项 glide 条。
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useUi, writeHash } from '../../store/ui';
 import { useProjection, cardStatus, type Project } from '../../store/projection';
 import { Icon } from '../icons';
@@ -25,6 +26,20 @@ export function Sidebar() {
       .sort((a, b) => a.name.localeCompare(b.name, 'zh'));
   }, [projects, pending, sideQ]);
 
+  const listRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [hl, setHl] = useState<{ top: number; height: number } | null>(null);
+
+  const glideTo = (el: HTMLDivElement | null) => {
+    if (!el) { setHl(null); return; }
+    setHl({ top: el.offsetTop, height: el.offsetHeight });
+  };
+
+  useLayoutEffect(() => {
+    const i = list.findIndex((p) => p.id === pid);
+    glideTo(itemRefs.current[i] ?? null);
+  }, [pid, list]);
+
   return (
     <aside id="sidebar">
       <div className="side-brand">
@@ -36,7 +51,15 @@ export function Sidebar() {
         <input value={sideQ} onChange={(e) => setSideQ(e.target.value)} placeholder="筛选项目" aria-label="筛选项目" />
       </div>
       <div className="side-label">项目</div>
-      <div id="side-projects">
+      <div
+        id="side-projects"
+        ref={listRef}
+        onMouseLeave={() => {
+          const i = list.findIndex((p) => p.id === pid);
+          glideTo(itemRefs.current[i] ?? null);
+        }}
+      >
+        {hl ? <span className="side-glide" style={{ top: hl.top, height: hl.height, opacity: 1 }} /> : null}
         {list.length === 0 && <div className="side-empty">无匹配项目</div>}
         {list.map((p, k) => {
           const c = p.counts
@@ -53,8 +76,10 @@ export function Sidebar() {
           return (
             <div
               key={p.id}
+              ref={(el) => { itemRefs.current[k] = el; }}
               className={'side-item' + (active ? ' active' : '')}
               style={{ ['--i' as string]: k }}
+              onMouseEnter={() => glideTo(itemRefs.current[k])}
               onClick={() => {
                 useUi.getState().setRoute({ pid: p.id, view: 'projhome', openId: null, tab: 'comments', sessionId: null });
                 writeHash(p.id, 'projhome', null, 'comments');
