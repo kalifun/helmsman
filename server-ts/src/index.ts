@@ -38,7 +38,7 @@ import {
 } from './projection.ts'
 import { startTailer } from './observe/tail.ts'
 import { recoverStore } from './recovery.ts'
-import { retrieveHybrid, deriveQueries, makeNote, findDuplicateSediment, scoreNoteDebt, debtDemoteWeight, detectCitedEntries, withStableTag } from './kb.ts'
+import { retrieveHybrid, deriveQueries, makeNote, findDuplicateSediment, findDuplicateClusters, scoreNoteDebt, debtDemoteWeight, detectCitedEntries, withStableTag } from './kb.ts'
 import { assembleBrief, renderBriefPrompt, selectStableNotes, extractConclusion, type Brief } from './assembly.ts'
 import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
@@ -376,6 +376,29 @@ async function main(): Promise<void> {
       sourceRef: cardId,
       trust: 'agent-generated',
     }))
+    // 知识演化：库内历史重复簇收编（主条保留 + 重复条失效并链接主条）
+    const merged = await mergeDuplicateClusters(projectId)
+    if (merged > 0) console.log(`[kb] 合并重复 ${merged} 条（项目 ${projectId}）`)
+  }
+
+  /**
+   * 知识演化：扫描项目内有效笔记的重复簇，收编历史遗留重复。
+   * 每簇：主条（信任高/新/内容全）links 追加被合并条 id；重复条 invalidate（invalidated_by = 主条 id，可追溯）。
+   * embedding 不可用 → 0（不合并，零破坏）。
+   */
+  async function mergeDuplicateClusters(projectId: string): Promise<number> {
+    const notes = storage.listNotes(projectId).filter((n) => n.validUntil === null)
+    const clusters = await findDuplicateClusters(notes)
+    let merged = 0
+    for (const c of clusters) {
+      storage.upsertNote({ ...c.keep, links: [...new Set([...(c.keep.links ?? []), ...c.dupes.map((d) => d.id)])] })
+      for (const d of c.dupes) {
+        storage.invalidateNote(d.id, c.keep.id, Date.now())
+        console.log(`[kb] 合并重复：「${d.title.slice(0, 32)}」→ 并入「${c.keep.title.slice(0, 32)}」`)
+        merged++
+      }
+    }
+    return merged
   }
 
   /** 计划/目标批复后继续跑完：隔离区在二次 Done 时才合入（startExecution 的 then 已返回）。 */

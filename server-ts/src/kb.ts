@@ -170,6 +170,71 @@ export async function findDuplicateSediment(
   return null
 }
 
+export interface DupCluster {
+  /** 保留的主条（信任 rank 高 → updatedAt 新 → 内容长） */
+  keep: KbNote
+  /** 合并进主条的重复条 */
+  dupes: KbNote[]
+}
+
+const TRUST_RANK_NOTE: Record<KbNote['trust'], number> = { 'human-approved': 3, 'agent-generated': 2, unverified: 1 }
+
+/** 簇内选主条：信任高 > 更新时间新 > 内容长 */
+function pickKeep(cluster: KbNote[]): { keep: KbNote; dupes: KbNote[] } {
+  const sorted = [...cluster].sort((a, b) => {
+    const tr = (TRUST_RANK_NOTE[b.trust] ?? 0) - (TRUST_RANK_NOTE[a.trust] ?? 0)
+    if (tr !== 0) return tr
+    const up = (b.updatedAt ?? 0) - (a.updatedAt ?? 0)
+    if (up !== 0) return up
+    const la = a.content.join('').length
+    const lb = b.content.join('').length
+    return lb - la
+  })
+  return { keep: sorted[0], dupes: sorted.slice(1) }
+}
+
+/**
+ * 库内重复簇检测（知识演化：历史遗留重复收编）。
+ * 两两语义相似度（sim ≥ 0.85 连边）→ 连通分量 = 簇（size ≥ 2）。
+ * 只处理传入的有效笔记（调用方 filter validUntil === null）；embedding 不可用 → []。
+ */
+export async function findDuplicateClusters(
+  notes: KbNote[],
+  embedNotesFn: (notes: KbNote[]) => Promise<Float32Array[] | null> = embedNotes,
+): Promise<DupCluster[]> {
+  if (notes.length < 2) return []
+  const vecs = await embedNotesFn(notes)
+  if (!vecs || vecs.length !== notes.length) return []
+  // 邻接（无向，sim ≥ 阈值）
+  const adj: number[][] = notes.map(() => [])
+  for (let i = 0; i < notes.length; i++) {
+    for (let j = i + 1; j < notes.length; j++) {
+      if (cosine(vecs[i], vecs[j]) >= DUP_THRESHOLD) {
+        adj[i].push(j)
+        adj[j].push(i)
+      }
+    }
+  }
+  // 连通分量
+  const seen = new Set<number>()
+  const clusters: KbNote[][] = []
+  for (let i = 0; i < notes.length; i++) {
+    if (seen.has(i)) continue
+    const comp: number[] = []
+    const stack = [i]
+    seen.add(i)
+    while (stack.length) {
+      const k = stack.pop()!
+      comp.push(k)
+      for (const nx of adj[k]) {
+        if (!seen.has(nx)) { seen.add(nx); stack.push(nx) }
+      }
+    }
+    if (comp.length >= 2) clusters.push(comp.map((k) => notes[k]))
+  }
+  return clusters.map(pickKeep)
+}
+
 export type DebtStatus = 'idle' | 'useful' | 'unused' | 'toxic'
 
 export interface NoteDebt {
