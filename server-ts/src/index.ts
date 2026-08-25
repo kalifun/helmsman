@@ -1119,6 +1119,14 @@ async function main(): Promise<void> {
         send(200, root)
         return
       }
+      const repoStatusMatch = path.match(/^\/api\/projects\/([^/]+)\/repo-status$/)
+      if (repoStatusMatch && method === 'GET') {
+        const pid = decodeURIComponent(repoStatusMatch[1])
+        const p = proj.projects[pid]
+        if (!p) throw new HttpError(404, `project '${pid}' not found`)
+        send(200, repoStatus(p.path))
+        return
+      }
       const fileReadMatch = path.match(/^\/api\/projects\/([^/]+)\/files\/read$/)
       if (fileReadMatch && method === 'GET') {
         const pid = decodeURIComponent(fileReadMatch[1])
@@ -2098,6 +2106,25 @@ function readProjectFile(workspace: string, rel: string): {
   const binary = head.includes(0)
   if (binary) return { path: rel, name: basename(full), size, content: '', truncated: false, binary: true }
   return { path: rel, name: basename(full), size, content: buf.toString('utf8'), truncated: false, binary: false }
+}
+
+/** 仓库活状态：当前分支 + 工作区修改（git status --porcelain）+ 最近提交。非 git 仓库给 error。 */
+function repoStatus(workspace: string): {
+  branch: string; dirty: number; staged: number; lastCommit: string; error?: string
+} {
+  const git = (args: string[], timeoutMs = 5000): string => {
+    try {
+      return execSync('git ' + args.join(' '), { cwd: workspace, encoding: 'utf8', timeout: timeoutMs }).trim()
+    } catch { return '' }
+  }
+  if (!git(['rev-parse', '--is-inside-work-tree'])) {
+    return { branch: '', dirty: 0, staged: 0, lastCommit: '', error: 'not a git repo' }
+  }
+  const branch = git(['branch', '--show-current'])
+  const status = git(['status', '--porcelain']).split('\n').filter(Boolean)
+  const staged = status.filter((l) => /^[MADRCU]/.test(l)).length
+  const lastCommit = git(['log', '-1', '--oneline'])
+  return { branch, dirty: status.length, staged, lastCommit }
 }
 
 /** 构造一个 WebSocket 文本帧（服务端 → 客户端，未掩码）。 */

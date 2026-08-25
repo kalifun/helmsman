@@ -18,7 +18,7 @@ import { listKbNotes, listApprovals, type KbNoteRow } from '../api/client';
 export function ProjectHomeView({ pid }: { pid: string }) {
   const [removeOpen, setRemoveOpen] = useState(false);
   const [kbRecent, setKbRecent] = useState<KbNoteRow[]>([]);
-  const [fsTop, setFsTop] = useState<Array<{ name: string; type: string }>>([]);
+  const [repo, setRepo] = useState<{ branch: string; dirty: number; staged: number; lastCommit: string; error?: string } | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const project = useProjection((s) => s.projects[pid]);
   const pending = useUi((s) => s.pendingProjects[pid]);
@@ -51,10 +51,12 @@ export function ProjectHomeView({ pid }: { pid: string }) {
         setPendingCount(approvals.length);
       } catch { /* 首页数据失败不阻塞 */ }
       try {
-        const r = await fetch(`/api/projects/${encodeURIComponent(pid)}/files`);
-        const root = (await r.json()) as { children?: Array<{ name: string; type: string }> };
-        if (alive) setFsTop((root.children ?? []).slice(0, 7));
-      } catch { /* 文件树失败忽略 */ }
+        const r = await fetch(`/api/projects/${encodeURIComponent(pid)}/repo-status`);
+        if (r.ok) {
+          const rs = (await r.json()) as { branch: string; dirty: number; staged: number; lastCommit: string; error?: string };
+          if (alive) setRepo(rs);
+        }
+      } catch { /* 仓库状态失败忽略 */ }
     })();
     return () => { alive = false; };
   }, [pid]);
@@ -128,17 +130,29 @@ export function ProjectHomeView({ pid }: { pid: string }) {
 
           <div className="ph-sec">
             <div className="ph-sec-t">仓库</div>
-            {fsTop.length ? (
-              <div className="ph-items">
-                {fsTop.map((f) => (
-                  <button key={f.name} className="ph-item" onClick={() => goView('files')}>
-                    <Icon name={f.type === 'dir' ? 'folder' : 'doc'} size="sm" />
-                    <span className="at">{f.name}</span>
-                  </button>
-                ))}
+            {repo === null ? (
+              <div className="ph-empty">加载仓库状态…</div>
+            ) : repo.error ? (
+              <div className="ph-empty">{repo.error === 'not a git repo' ? '不是 git 仓库' : '仓库状态不可读'}</div>
+            ) : (
+              <div className="repo-status" onClick={() => goView('files')} role="button" title="查看文件">
+                <div className="repo-row">
+                  <span className="tag">分支</span>
+                  <b className="repo-branch">{repo.branch || '（无分支）'}</b>
+                  {repo.dirty > 0 ? (
+                    <span className={'repo-dirty' + (repo.staged > 0 ? ' staged' : '')}>
+                      {repo.dirty} 个改动{repo.staged > 0 ? ` · ${repo.staged} 已暂存` : ''}
+                    </span>
+                  ) : (
+                    <span className="repo-clean">工作区干净</span>
+                  )}
+                </div>
+                {repo.lastCommit ? (
+                  <div className="repo-commit">{repo.lastCommit}</div>
+                ) : null}
               </div>
-            ) : <div className="ph-empty">仓库不可读</div>}
-            <div className="ph-hint2">工作区文件树 · 点击查看文件</div>
+            )}
+            <div className="ph-hint2">当前分支 + 工作区修改 · 点击查看文件</div>
           </div>
         </div>
 
