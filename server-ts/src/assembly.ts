@@ -5,7 +5,7 @@
  * P1：LLM 提炼（经引擎 ACP）、向量检索、矛盾检测（强模型）。
  */
 import type { KbNote } from './storage.ts'
-import { retrieve, deriveQueries, isStableTagged } from './kb.ts'
+import { retrieveHybrid, deriveQueries, isStableTagged } from './kb.ts'
 
 export interface BriefEntry {
   id: string
@@ -20,17 +20,30 @@ export interface Brief {
   kbHits: BriefEntry[]
 }
 
-/** 装配简报（规格 §4.2：resolve → annotate → select → emit）。规则版：任务定义 + KB 命中。 */
-export function assembleBrief(input: {
-  taskTitle: string
-  taskDescription: string
-  notes: KbNote[]
-  maxKbEntries?: number
-  demote?: Record<string, number>
-}): Brief {
+/** 装配简报（规格 §4.2：resolve → annotate → select → emit）。混合检索：规则 + 语义（向量可用时）。
+ * embedOpts 可注入 fake embedder（测试避免加载真实模型）；缺省用真实 embedding.ts（笔记侧带缓存）。 */
+export async function assembleBrief(
+  input: {
+    taskTitle: string
+    taskDescription: string
+    notes: KbNote[]
+    maxKbEntries?: number
+    demote?: Record<string, number>
+  },
+  embedOpts: {
+    embedNotes?: (notes: KbNote[]) => Promise<Float32Array[] | null>
+    embedQuery?: (text: string) => Promise<Float32Array[] | null>
+  } = {},
+): Promise<Brief> {
   const taskText = `${input.taskTitle}\n${input.taskDescription}`.trim()
   const queries = deriveQueries(taskText)
-  const hits = retrieve(input.notes, queries, { limit: input.maxKbEntries ?? 5, threshold: 0.15, demote: input.demote })
+  const hits = await retrieveHybrid(input.notes, queries, taskText, {
+    limit: input.maxKbEntries ?? 5,
+    threshold: 0.15,
+    demote: input.demote,
+    embedNotes: embedOpts.embedNotes,
+    embedQuery: embedOpts.embedQuery,
+  })
   return {
     taskTitle: input.taskTitle,
     taskDescription: input.taskDescription,

@@ -38,7 +38,7 @@ import {
 } from './projection.ts'
 import { startTailer } from './observe/tail.ts'
 import { recoverStore } from './recovery.ts'
-import { retrieve, deriveQueries, makeNote, scoreNoteDebt, debtDemoteWeight, detectCitedEntries, withStableTag } from './kb.ts'
+import { retrieveHybrid, deriveQueries, makeNote, scoreNoteDebt, debtDemoteWeight, detectCitedEntries, withStableTag } from './kb.ts'
 import { assembleBrief, renderBriefPrompt, selectStableNotes, extractConclusion, type Brief } from './assembly.ts'
 import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
@@ -510,7 +510,7 @@ async function main(): Promise<void> {
         const w = debtDemoteWeight(scoreNoteDebt(n.id, history).status)
         if (w !== 1) demote[n.id] = w
       }
-      brief = assembleBrief({
+      brief = await assembleBrief({
         taskTitle: c.title,
         taskDescription: c.description,
         notes,
@@ -1773,7 +1773,7 @@ async function main(): Promise<void> {
         const projectId = url.searchParams.get('project') ?? 'helmsman'
         const q = url.searchParams.get('q') ?? ''
         const notes = storage.listNotes(projectId)
-        const hits = q ? retrieve(notes, deriveQueries(q), { limit: 8 }) : []
+        const hits = q ? await retrieveHybrid(notes, deriveQueries(q), q, { limit: 8 }) : []
         send(200, hits.map((h) => ({ note: h.note, score: Math.round(h.score * 100) / 100 })))
         return
       }

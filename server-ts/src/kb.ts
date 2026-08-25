@@ -2,8 +2,10 @@
  * 知识库检索 + 沉淀（M4 最小闭环，规则检索基线 —— 规格 §5.2：先规则检索跑通度量基线，再上向量）。
  * 检索：FTS5 关键词（精确命中文件名/模块/技术词）+ 标签/标题匹配，融合排序。
  * 沉淀：任务 Done → 提炼（LLM 调用，经引擎）→ 建链/矛盾检测（简化：标签去重 + 时间重叠冲突判定）。
+ * P2 向量：retrieveHybrid 在规则基线上叠加语义通道（embedding 不可用自动回落纯规则）。
  */
 import type { KbNote } from './storage.ts'
+import { embedTexts, embedNotes, cosine } from './embedding.ts'
 
 export const STABLE_TAG = 'stable'
 
@@ -93,6 +95,52 @@ export function retrieve(
 function isZhBigram(q: string): boolean {
   if (q.length !== 2) return false
   return /^[\u4e00-\u9fa5]{2}$/.test(q)
+}
+
+/** 语义通道的候选门槛（bge 中文相似度：无关 ~0.3，相关 ~0.6+；0.5 是合理门） */
+const SEMANTIC_THRESHOLD = 0.5
+
+/**
+ * 混合检索：规则通道（词命中必过，含新鲜度/信任权重）+ 语义通道（向量相似，词未命中也能进）。
+ * 融合分：规则命中条目 = 0.7·规则分 + 0.3·语义分；纯语义条目 = 0.8·语义分（无新鲜度/信任信号，折扣防误配）。
+ * embedding 不可用 → 返回纯规则结果（降级零破坏）。
+ * opts.embedNotes / opts.embedQuery 可注入（测试用 fake；缺省用真实 embedding.ts，笔记侧带缓存）。
+ */
+export async function retrieveHybrid(
+  notes: KbNote[],
+  queries: string[],
+  queryText: string,
+  opts: {
+    limit?: number
+    threshold?: number
+    demote?: Record<string, number>
+    embedNotes?: (notes: KbNote[]) => Promise<Float32Array[] | null>
+    embedQuery?: (text: string) => Promise<Float32Array[] | null>
+  } = {},
+): Promise<RetrievalHit[]> {
+  const limit = opts.limit ?? 5
+  const threshold = opts.threshold ?? 0.15
+  const ruleHits = retrieve(notes, queries, opts)
+  const ruleById = new Map(ruleHits.map((h) => [h.note.id, h.score]))
+
+  const vecs = opts.embedNotes ? await opts.embedNotes(notes) : await embedNotes(notes)
+  if (!vecs || vecs.length !== notes.length) return ruleHits // 笔记向量不可用 → 纯规则（也不调 embedQuery，防拖慢）
+  const qv = opts.embedQuery ? await opts.embedQuery(queryText) : await embedTexts([queryText], { query: true })
+  if (!qv) return ruleHits
+
+  const q = qv[0]
+  const scored: RetrievalHit[] = []
+  notes.forEach((note, i) => {
+    const sim = cosine(q, vecs[i])
+    const rule = ruleById.get(note.id)
+    if (rule != null) {
+      scored.push({ note, score: 0.7 * rule + 0.3 * sim })
+    } else if (sim >= SEMANTIC_THRESHOLD) {
+      scored.push({ note, score: 0.8 * sim })
+    }
+  })
+  scored.sort((a, b) => b.score - a.score)
+  return scored.filter((s) => s.score >= threshold).slice(0, limit)
 }
 
 export type DebtStatus = 'idle' | 'useful' | 'unused' | 'toxic'

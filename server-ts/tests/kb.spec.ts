@@ -3,7 +3,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { extractConclusion, assembleBrief, renderBriefPrompt, selectStableNotes } from '../src/assembly.ts'
-import { deriveQueries, retrieve, makeNote, detectCitedEntries, scoreNoteDebt, debtDemoteWeight, withStableTag } from '../src/kb.ts'
+import { deriveQueries, retrieve, retrieveHybrid, makeNote, detectCitedEntries, scoreNoteDebt, debtDemoteWeight, withStableTag } from '../src/kb.ts'
 import { compareGroup, compareReport } from '../src/experiment.ts'
 import type { MetricRow } from '../src/storage.ts'
 
@@ -104,9 +104,9 @@ describe('知识债务', () => {
 })
 
 describe('装配', () => {
-  it('简报命中进入 kbHits，渲染含稳定块', () => {
+  it('简报命中进入 kbHits，渲染含稳定块', async () => {
     const notes = [makeNote({ projectId: 'p', title: 'transfer.go 锁竞态', content: ['按资源 ID 排序加锁'], tags: [], keywords: ['transfer.go'], summary: '', sourceKind: 'human', sourceRef: 'x', trust: 'human-approved' })]
-    const brief = assembleBrief({ taskTitle: '修 transfer.go', taskDescription: '', notes })
+    const brief = await assembleBrief({ taskTitle: '修 transfer.go', taskDescription: '', notes }, { embedNotes: async () => null })
     expect(brief.kbHits.length).toBeGreaterThan(0)
     const prompt = renderBriefPrompt(brief, [{ title: 'transfer.go 锁竞态', content: ['按资源 ID 排序加锁'] }])
     expect(prompt).toContain('项目稳定知识')
@@ -182,5 +182,54 @@ describe('ACP 预设透传（P0 预设落地）', () => {
     await acp.sessionNew('/tmp/x')
     const [, params2] = callSpy.mock.calls[0] as unknown as [string, Record<string, unknown>]
     expect(params2._meta).toBeUndefined()
+  })
+})
+
+describe('混合检索（P2 向量：规则 + 语义融合）', () => {
+  const N = (id: string, title: string, content: string[] = []): ReturnType<typeof makeNote> =>
+    ({ ...makeNote({ projectId: 'p', title, content, tags: [], keywords: [], summary: '', sourceKind: 'human', sourceRef: 'x', trust: 'human-approved' }), id })
+
+  it('语义通道：词未命中但语义相关也能召回（fake embedder）', async () => {
+    const notes = [
+      N('n1', '冷链乳制品安全校验', ['冷链路运输中必须验证乳制品温度']),
+      N('n2', '登录页表单校验', ['邮箱和密码非空校验']),
+    ]
+    // fake embedder：手工向量，query 与 n1 语义近、与 n2 远
+    const embedNotes = async (ns: typeof notes) => ns.map((n) => {
+      const v = new Float32Array(4)
+      v[0] = 1
+      v[1] = n.title.includes('冷链') || n.content.join('').includes('冷链路') ? 1 : 0
+      v[2] = n.title.includes('登录') ? 1 : 0
+      return v
+    })
+    const embedQuery = async () => { const v = new Float32Array(4); v[0] = 1; v[1] = 1; return [v] }
+    const hits = await retrieveHybrid(notes, deriveQueries('cold chain dairy verification'), 'cold chain dairy verification', { limit: 5, embedNotes, embedQuery })
+    // 语义上 n1（冷链）应该排在最前，即使关键词 'cold chain' 完全没命中中文笔记
+    expect(hits.length).toBeGreaterThan(0)
+    expect(hits[0].note.id).toBe('n1')
+  })
+
+  it('embedder 不可用（返回 null）→ 降级纯规则，不抛错', async () => {
+    const notes = [N('n1', 'transfer.go 锁竞态', ['按资源 ID 排序加锁'])]
+    const hits = await retrieveHybrid(notes, deriveQueries('修 transfer.go'), '修 transfer.go', { limit: 5, embedNotes: async () => null })
+    expect(hits.length).toBeGreaterThan(0) // 规则通道仍命中
+    expect(hits[0].note.id).toBe('n1')
+  })
+
+  it('规则命中条目融合语义分：命中且相关 > 命中但无关', async () => {
+    const notes = [
+      N('n1', 'transfer.go 锁竞态', ['transfer.go 里按资源 ID 排序加锁']),
+      N('n2', 'transfer.go 迁移', ['transfer.go 里的表结构迁移脚本']),
+    ]
+    // query 与 n1 语义更近
+    const embedNotes = async (ns: typeof notes) => ns.map((n) => {
+      const v = new Float32Array(4)
+      v[0] = 1
+      v[1] = n.title.includes('锁') || n.content.join('').includes('锁') ? 1 : 0
+      return v
+    })
+    const embedQuery = async () => { const v = new Float32Array(4); v[0] = 1; v[1] = 1; return [v] }
+    const hits = await retrieveHybrid(notes, deriveQueries('修 transfer.go 的锁'), '修 transfer.go 的锁', { limit: 5, embedNotes, embedQuery })
+    expect(hits[0].note.id).toBe('n1')
   })
 })

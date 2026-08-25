@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.25.1",
+    "@huggingface/transformers": "^4.2.0",
     "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
