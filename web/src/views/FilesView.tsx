@@ -130,7 +130,6 @@ export function FilesView({ pid }: { pid: string }) {
             <div className="d">从左侧选择文件，查看内容预览</div>
           </div>
         )}
-        <div className="note" style={{ marginTop: 14 }}>文件内容由工作区实时读取（读取接口 P2 已开；二进制/超大文件不预览）。</div>
       </div>
       <span className="hidden">{pid}</span>
     </div>
