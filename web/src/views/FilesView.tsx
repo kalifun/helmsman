@@ -66,7 +66,7 @@ export function FilesView({ pid }: { pid: string }) {
       </button>
       {n.children?.length ? (
         <div className="fx-children">
-          {n.children.map((c) => renderNode(c, path + '/' + c.name))}
+          {n.children.map((c) => renderNode(c, path ? path + '/' + c.name : c.name))}
         </div>
       ) : null}
     </div>
@@ -80,7 +80,7 @@ export function FilesView({ pid }: { pid: string }) {
         <div className="fx-tree">
           {loading ? (
             <div className="empty-state"><LoadingState variant="dots" label="加载文件树…" /></div>
-          ) : tree ? renderNode(tree, tree.name) : (
+          ) : tree ? renderNode(tree, '') : (
             <div className="empty-state">
               <Icon name="folder" />
               <div className="t">文件树不可用</div>
