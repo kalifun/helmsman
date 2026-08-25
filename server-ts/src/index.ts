@@ -2108,9 +2108,10 @@ function readProjectFile(workspace: string, rel: string): {
   return { path: rel, name: basename(full), size, content: buf.toString('utf8'), truncated: false, binary: false }
 }
 
-/** 仓库活状态：当前分支 + 工作区修改（git status --porcelain）+ 最近提交。非 git 仓库给 error。 */
+/** 仓库活状态：分支 + 工作区修改（dirty/staged/untracked/conflicted）+ 远端 ahead/behind + 最近提交。非 git 仓库给 error。 */
 function repoStatus(workspace: string): {
-  branch: string; dirty: number; staged: number; lastCommit: string; error?: string
+  branch: string; dirty: number; staged: number; untracked: number; conflicted: number
+  ahead: number; behind: number; lastCommit: string; error?: string
 } {
   const git = (args: string[], timeoutMs = 5000): string => {
     try {
@@ -2118,13 +2119,24 @@ function repoStatus(workspace: string): {
     } catch { return '' }
   }
   if (!git(['rev-parse', '--is-inside-work-tree'])) {
-    return { branch: '', dirty: 0, staged: 0, lastCommit: '', error: 'not a git repo' }
+    return { branch: '', dirty: 0, staged: 0, untracked: 0, conflicted: 0, ahead: 0, behind: 0, lastCommit: '', error: 'not a git repo' }
   }
   const branch = git(['branch', '--show-current'])
   const status = git(['status', '--porcelain']).split('\n').filter(Boolean)
+  // porcelain 行格式 `XY path`：X = 暂存区状态，Y = 工作区状态；冲突时 X 或 Y 为 U（UU/AA/AU…）
   const staged = status.filter((l) => /^[MADRCU]/.test(l)).length
+  const untracked = status.filter((l) => /^\?\?/.test(l)).length
+  const conflicted = status.filter((l) => l.length >= 2 && (l[0] === 'U' || l[1] === 'U')).length
   const lastCommit = git(['log', '-1', '--oneline'])
-  return { branch, dirty: status.length, staged, lastCommit }
+  // ahead/behind：有 upstream 时 rev-list --left-right --count HEAD...@{u} → "ahead\tbehind"
+  let ahead = 0
+  let behind = 0
+  if (git(['rev-parse', '--abbrev-ref', '@{u}'])) {
+    const ab = git(['rev-list', '--left-right', '--count', 'HEAD...@{u}'])
+    const m = ab.match(/(\d+)\s+(\d+)/)
+    if (m) { ahead = Number(m[1]); behind = Number(m[2]) }
+  }
+  return { branch, dirty: status.length, staged, untracked, conflicted, ahead, behind, lastCommit }
 }
 
 /** 构造一个 WebSocket 文本帧（服务端 → 客户端，未掩码）。 */

@@ -18,7 +18,7 @@ import { listKbNotes, listApprovals, type KbNoteRow } from '../api/client';
 export function ProjectHomeView({ pid }: { pid: string }) {
   const [removeOpen, setRemoveOpen] = useState(false);
   const [kbRecent, setKbRecent] = useState<KbNoteRow[]>([]);
-  const [repo, setRepo] = useState<{ branch: string; dirty: number; staged: number; lastCommit: string; error?: string } | null>(null);
+  const [repo, setRepo] = useState<{ branch: string; dirty: number; staged: number; untracked: number; conflicted: number; ahead: number; behind: number; lastCommit: string; error?: string } | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const project = useProjection((s) => s.projects[pid]);
   const pending = useUi((s) => s.pendingProjects[pid]);
@@ -53,7 +53,7 @@ export function ProjectHomeView({ pid }: { pid: string }) {
       try {
         const r = await fetch(`/api/projects/${encodeURIComponent(pid)}/repo-status`);
         if (r.ok) {
-          const rs = (await r.json()) as { branch: string; dirty: number; staged: number; lastCommit: string; error?: string };
+          const rs = (await r.json()) as { branch: string; dirty: number; staged: number; untracked: number; conflicted: number; ahead: number; behind: number; lastCommit: string; error?: string };
           if (alive) setRepo(rs);
         }
       } catch { /* 仓库状态失败忽略 */ }
@@ -139,9 +139,16 @@ export function ProjectHomeView({ pid }: { pid: string }) {
                 <div className="repo-row">
                   <span className="tag">分支</span>
                   <b className="repo-branch">{repo.branch || '（无分支）'}</b>
-                  {repo.dirty > 0 ? (
+                  {(repo.ahead > 0 || repo.behind > 0) ? (
+                    <span className="repo-sync" title="与远端对比">{repo.ahead > 0 ? `↑${repo.ahead}` : ''}{repo.ahead > 0 && repo.behind > 0 ? ' ' : ''}{repo.behind > 0 ? `↓${repo.behind}` : ''}</span>
+                  ) : null}
+                  {repo.conflicted > 0 ? (
+                    <span className="repo-conflict">冲突 {repo.conflicted} 个</span>
+                  ) : repo.dirty > 0 ? (
                     <span className={'repo-dirty' + (repo.staged > 0 ? ' staged' : '')}>
-                      {repo.dirty} 个改动{repo.staged > 0 ? ` · ${repo.staged} 已暂存` : ''}
+                      {repo.dirty} 个改动
+                      {repo.staged > 0 ? ` · ${repo.staged} 已暂存` : ''}
+                      {repo.untracked > 0 ? ` · ${repo.untracked} 新文件` : ''}
                     </span>
                   ) : (
                     <span className="repo-clean">工作区干净</span>
