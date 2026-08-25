@@ -1,9 +1,9 @@
 // 职责：思考折叠（Beautiful UI「Thinking」移植，MIT © Shane Levine）——
-//   展开式轨迹：shimmer「思考中…」标题 + 左引导线轨迹列表 + 分页签（全部/推理/工具/文本）。
-//   运行中默认展开（defaultOpen ?? running），live 标题走 shimmer 文字动画；折叠用 grid-rows 过渡。
+//   四种形态：步骤 / 推理 / 检索 / 编码。页签只露出当前组真实有的形态，不是假切换。
 import { useMemo, useState, type ReactNode } from 'react';
 
 export type ThinkRowKind = 'think' | 'tool' | 'text';
+export type ThinkVariant = 'steps' | 'reasoning' | 'search' | 'coding';
 
 export interface ThinkRow {
   id: string | number;
@@ -20,13 +20,53 @@ export interface ThinkRow {
   meta?: string;
 }
 
-const TABS = [
-  { id: 'all', label: '全部' },
-  { id: 'think', label: '推理' },
-  { id: 'tool', label: '工具' },
-  { id: 'text', label: '文本' },
-] as const;
-type TabId = (typeof TABS)[number]['id'];
+const VARIANTS: { id: ThinkVariant; label: string }[] = [
+  { id: 'steps', label: '步骤' },
+  { id: 'reasoning', label: '推理' },
+  { id: 'search', label: '检索' },
+  { id: 'coding', label: '编码' },
+];
+
+function isSearchTool(name?: string): boolean {
+  return !!name && /search|kb|web|grep|fetch|lookup|query|find/i.test(name);
+}
+
+function queryOf(r: ThinkRow): string {
+  const raw = r.args?.trim();
+  if (raw) {
+    try {
+      const j = JSON.parse(raw) as unknown;
+      if (typeof j === 'string') return j;
+      if (j && typeof j === 'object') {
+        const o = j as Record<string, unknown>;
+        const v = o.query ?? o.q ?? o.pattern ?? o.search ?? o.path ?? o.keyword;
+        if (typeof v === 'string' && v.trim()) return v;
+      }
+    } catch { /* 非 JSON，原样当查询 */ }
+    return raw.length > 96 ? raw.slice(0, 96) + '…' : raw;
+  }
+  return r.name ?? '';
+}
+
+function availableOf(rows: ThinkRow[]): ThinkVariant[] {
+  const tools = rows.filter((r) => r.kind === 'tool');
+  const hasThink = rows.some((r) => r.kind === 'think' || r.kind === 'text');
+  const hasSearch = tools.some((t) => isSearchTool(t.name));
+  const hasCode = tools.some((t) => !isSearchTool(t.name));
+  const out: ThinkVariant[] = [];
+  if (rows.length) out.push('steps');
+  if (hasThink) out.push('reasoning');
+  if (hasSearch) out.push('search');
+  if (hasCode) out.push('coding');
+  return out;
+}
+
+function rowsFor(rows: ThinkRow[], variant: ThinkVariant): ThinkRow[] {
+  if (variant === 'reasoning') return rows.filter((r) => r.kind === 'think' || r.kind === 'text');
+  if (variant === 'search') return rows.filter((r) => r.kind === 'tool' && isSearchTool(r.name));
+  if (variant === 'coding') return rows.filter((r) => r.kind === 'tool' && !isSearchTool(r.name));
+  return rows;
+}
 
 interface Props {
   rows: ThinkRow[];
@@ -40,19 +80,14 @@ interface Props {
 
 export function Thinking({ rows, running = false, label, defaultOpen, children }: Props) {
   const [open, setOpen] = useState(defaultOpen ?? running);
-  const [tab, setTab] = useState<TabId>('all');
-
-  const kinds = useMemo(() => {
-    const s = new Set<ThinkRowKind>();
-    rows.forEach((r) => s.add(r.kind));
-    return s;
-  }, [rows]);
-
-  const shown = tab === 'all' ? rows : rows.filter((r) => r.kind === tab);
+  const available = useMemo(() => availableOf(rows), [rows]);
+  const [picked, setPicked] = useState<ThinkVariant | null>(null);
+  const variant = picked && available.includes(picked) ? picked : (available[0] ?? 'steps');
+  const shown = rowsFor(rows, variant);
   const text = label ?? (running ? '思考中…' : '思考过程');
 
   return (
-    <div className={'think' + (open ? ' open' : '')}>
+    <div className={'think' + (open ? ' open' : '')} data-variant={variant}>
       <button
         type="button"
         className="think-head"
@@ -83,33 +118,66 @@ export function Thinking({ rows, running = false, label, defaultOpen, children }
       <div className="think-body">
         <div className="think-body-inner">
           <div className="think-trace">
-            {shown.map((r) => (
-              <div key={r.id} className="think-row" data-kind={r.kind}>
-                <span className="tdot" />
-                {r.kind === 'tool' ? (
-                  <>
-                    <span className="tname">{r.name}</span>
-                    <span className={r.err ? 'err' : 'ok'}>{r.err ? '失败' : '成功'}</span>
+            {shown.map((r, i) => {
+              const live = running && i === shown.length - 1;
+              const done = !live && (r.kind !== 'tool' || !r.err);
+              if (variant === 'reasoning') {
+                return (
+                  <div key={r.id} className="think-reason" data-kind={r.kind}>
+                    {r.text}
+                  </div>
+                );
+              }
+              if (variant === 'search') {
+                return (
+                  <div key={r.id} className={'think-hit' + (live ? ' live' : '')} data-kind="tool">
+                    <span className="think-hit-q">{queryOf(r)}</span>
+                    {r.err ? <span className="err">失败</span> : live ? <span className="tmeta">检索中</span> : <span className="ok">命中</span>}
                     {r.ms != null ? <span className="tmeta">{r.ms} ms</span> : null}
-                  </>
-                ) : (
-                  <span className="ttxt" title={r.text}>{r.text}</span>
-                )}
-                {r.meta ? <span className="tmeta">{r.meta}</span> : null}
-                {r.kind === 'tool' && r.args ? <div className="targs">{r.args}</div> : null}
-              </div>
-            ))}
+                  </div>
+                );
+              }
+              if (variant === 'coding') {
+                return (
+                  <div key={r.id} className={'think-code' + (live ? ' live' : '')} data-kind="tool">
+                    <div className="think-code-bar">
+                      <span className="tname">{r.name}</span>
+                      <span className={r.err ? 'err' : live ? 'tmeta' : 'ok'}>{r.err ? '失败' : live ? '执行中' : '成功'}</span>
+                      {r.ms != null ? <span className="tmeta">{r.ms} ms</span> : null}
+                    </div>
+                    {r.args ? <div className="targs">{r.args}</div> : null}
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={r.id}
+                  className={'think-step' + (live ? ' live' : done ? ' done' : '') + (r.err ? ' fail' : '')}
+                  data-kind={r.kind}
+                >
+                  <span className="think-n" aria-hidden="true">{r.err ? '!' : done ? '✓' : i + 1}</span>
+                  {r.kind === 'tool' ? (
+                    <>
+                      <span className="tname">{r.name}</span>
+                      {r.ms != null ? <span className="tmeta">{r.ms} ms</span> : null}
+                    </>
+                  ) : (
+                    <span className="ttxt" title={r.text}>{r.text}</span>
+                  )}
+                </div>
+              );
+            })}
             {children}
-            {rows.length === 0 && !children ? <div className="think-empty">（空）</div> : null}
+            {shown.length === 0 && !children ? <div className="think-empty">（空）</div> : null}
           </div>
-          {kinds.size > 1 ? (
+          {available.length > 1 ? (
             <div className="think-tabs">
-              {TABS.filter((t) => t.id === 'all' || kinds.has(t.id as ThinkRowKind)).map((t) => (
+              {VARIANTS.filter((t) => available.includes(t.id)).map((t) => (
                 <button
                   key={t.id}
                   type="button"
-                  className={'think-tab' + (tab === t.id ? ' active' : '')}
-                  onClick={() => setTab(t.id)}
+                  className={'think-tab' + (variant === t.id ? ' active' : '')}
+                  onClick={() => setPicked(t.id)}
                 >
                   {t.label}
                 </button>

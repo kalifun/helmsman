@@ -8,6 +8,7 @@ import { useProjection, type TaskState } from '../store/projection';
 import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 import { ToolChips, type ToolChip } from '../components/ToolChips';
+import { Thinking, type ThinkRow } from '../components/Thinking';
 import { StreamingText } from '../components/StreamingText';
 import { LoadingState } from '../components/LoadingState';
 import { Markdown } from '../components/Markdown';
@@ -135,6 +136,13 @@ export function SessionView({ pid }: { pid: string }) {
     return out;
   })();
 
+  const reasonRows: ThinkRow[] = [];
+  (task?.activities || []).forEach((a, i) => {
+    if ('Reasoning' in a && a.Reasoning.text) {
+      reasonRows.push({ id: i, kind: 'think', text: a.Reasoning.text });
+    }
+  });
+
   const offline = conn !== 'online';
   const copyOut = (t: string) => {
     void navigator.clipboard.writeText(t).then(() => toast('已复制')).catch(() => toast('复制失败'));
@@ -219,6 +227,11 @@ export function SessionView({ pid }: { pid: string }) {
               </div>
             ))
           )}
+          {reasonRows.length > 0 ? (
+            <div className="chat-turn">
+              <Thinking rows={reasonRows} running={busy || task?.status === 'Running'} />
+            </div>
+          ) : null}
           {toolCalls.length > 0 ? (
             <div className="chat-turn">
               <ToolChips calls={toolCalls} messages={rows.filter((r) => r.who === 'agent').length} defaultOpen={task?.status === 'Running'} />
