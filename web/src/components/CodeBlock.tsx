@@ -2,6 +2,7 @@
 //   带行号的 listing；若内容是 unified diff（或 fence 语言为 diff）可切 Code / Diff。
 //   纯展示；复制走 clipboard，失败由调用方 toast（onCopyError）。
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { highlightLine } from './highlight';
 
 export type DiffKind = 'meta' | 'hunk' | 'add' | 'del' | 'ctx';
 
@@ -137,7 +138,7 @@ export function CodeBlock({ code, info = '', onCopyError }: Props) {
           {listing.map((ln, i) => (
             <div key={i} className="codeblock-line ctx">
               <span className="n">{i + 1}</span>
-              <span className="tx">{ln}</span>
+              <span className="tx">{highlightLine(ln)}</span>
             </div>
           ))}
         </div>

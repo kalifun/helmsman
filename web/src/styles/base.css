@@ -1862,3 +1862,11 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 /* --- 文件预览（FilesView P2：读取接口已开）--- */
 .fx-preview { margin-top: 14px; max-width: 100%; }
 .fx-preview .codeblock { max-height: 60vh; overflow-y: auto; }
+
+/* --- 轻量语法高亮（零依赖，CodeBlock 普通视图）--- */
+.hl-str { color: var(--green); }
+.hl-com { color: var(--text3); font-style: italic; }
+.hl-kw { color: var(--blue); font-weight: 500; }
+.hl-num { color: var(--yellow); }
+/* 文件预览：外层容器滚动，内层不再 320px 截断 */
+.fx-preview .codeblock-body { max-height: none; }
