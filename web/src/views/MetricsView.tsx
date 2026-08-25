@@ -4,6 +4,9 @@
 // 零依赖：SVG 折线手绘（点 + title 原生 tooltip）。
 import { useEffect, useMemo, useState } from 'react';
 import { getMetrics, type MetricRow } from '../api/client';
+import { InsightCards, type InsightPage } from '../components/InsightCards';
+import { useProjection } from '../store/projection';
+import { useUi, writeHash } from '../store/ui';
 
 const W = 680, H = 150, P = { l: 46, r: 14, t: 16, b: 22 };
 
@@ -71,6 +74,8 @@ function Line({
 export function MetricsView({ pid }: { pid: string }) {
   const [rows, setRows] = useState<MetricRow[] | null>(null);
   const [err, setErr] = useState('');
+  const cards = useProjection((s) => s.cards[pid] || {});
+  const chats = useProjection((s) => s.chats[pid] || {});
 
   useEffect(() => {
     let alive = true;
@@ -102,6 +107,7 @@ export function MetricsView({ pid }: { pid: string }) {
     const verified = seq.filter((r) => r.verified === true).length;
     const verifiedTotal = seq.filter((r) => r.verified === true || r.verified === false).length;
     return {
+      seq,
       total: seq.length,
       totalCost: seq.reduce((a, r) => a + r.cost, 0),
       avgCost: seq.length ? seq.reduce((a, r) => a + r.cost, 0) / seq.length : 0,
@@ -124,9 +130,84 @@ export function MetricsView({ pid }: { pid: string }) {
 
   const yuan = (v: number) => `¥${v >= 0.01 ? v.toFixed(3) : v.toFixed(4)}`;
   const num = (v: number) => String(Math.round(v * 100) / 100);
+  const titleOf = (sid: string) => {
+    for (const c of Object.values(cards)) {
+      if (c.executions[sid]) return c.title || sid.slice(0, 8);
+    }
+    if (chats[sid]) return chats[sid].title || '简单会话';
+    return sid.slice(0, 8);
+  };
+  const goSessions = () => {
+    useUi.getState().setRoute({ view: 'sessions', openId: null, tab: 'comments', sessionId: null });
+    writeHash(pid, 'sessions', null, 'comments');
+  };
+  const worst = m.seq.reduce((a, r) => (r.cost > a.cost ? r : a));
+  const best = m.seq.reduce((a, r) => (r.cost < a.cost ? r : a));
+  const vsAvg = m.avgCost > 0 ? (worst.cost - m.avgCost) / m.avgCost : 0;
+  const cachePts = m.seq.map((r) => r.cache_hit).filter((v) => v > 0);
+  const costPts = m.seq.map((r) => r.cost);
+  const insights: InsightPage[] = [
+    {
+      id: 'cost',
+      body: (
+        <>
+          本项目 <code>{m.total}</code> 次执行累计 <code>{yuan(m.totalCost)}</code>。
+          最贵的一次是 {titleOf(worst.task_id)} — <code>{yuan(worst.cost)}</code>
+          {vsAvg > 0 ? <>，比平均高 <code>{Math.round(vsAvg * 100)}%</code></> : null}。
+        </>
+      ),
+      sparks: [
+        { label: titleOf(worst.task_id), value: yuan(worst.cost), delta: vsAvg },
+        { label: titleOf(best.task_id), value: yuan(best.cost), delta: m.avgCost > 0 ? (best.cost - m.avgCost) / m.avgCost : 0 },
+        { label: '平均', value: yuan(m.avgCost) },
+      ],
+      series: costPts,
+      seriesLabel: '单次成本',
+      fmt: yuan,
+      cta: { label: '去会话记录看看？', onClick: goSessions },
+    },
+    {
+      id: 'cache',
+      body: m.avgCache == null ? (
+        <>还没有缓存命中数据 —— 前缀分区生效后，这里会显示命中率趋势。</>
+      ) : (
+        <>
+          平均缓存命中 <code>{Math.round(m.avgCache * 100)}%</code>。
+          前缀分区{m.avgCache >= 0.3 ? '已经在起作用' : '还偏低，后续同类任务会更明显'}。
+        </>
+      ),
+      sparks: cachePts.length ? [
+        { label: '最近一次', value: `${Math.round(cachePts[cachePts.length - 1] * 100)}%` },
+        { label: '平均命中', value: `${Math.round((m.avgCache ?? 0) * 100)}%` },
+      ] : undefined,
+      series: cachePts,
+      seriesLabel: '缓存命中率',
+      fmt: (v) => `${Math.round(v * 100)}%`,
+    },
+    {
+      id: 'verify',
+      body: m.verifiedRate == null ? (
+        <>还没有带验收标准的执行。给卡加上验收后，通过率会记在这里。</>
+      ) : (
+        <>
+          验收通过率 <code>{Math.round(m.verifiedRate * 100)}%</code>
+          （<code>{m.verifiedTotal}</code> 次验收）。
+          平均轮次 <code>{num(m.avgTurns)}</code>。
+        </>
+      ),
+      sparks: [
+        { label: '平均轮次', value: num(m.avgTurns) },
+        { label: '执行次数', value: String(m.total) },
+      ],
+      series: m.seq.map((r) => r.turns),
+      seriesLabel: '轮次 / 执行',
+      fmt: (v) => String(Math.round(v)),
+    },
+  ];
 
   return (
     <div id="metrics">
+      <InsightCards pages={insights} />
       <div className="m-panel">
         <div className="m-card"><span className="m-k">执行次数</span><span className="m-v">{m.total}</span></div>
         <div className="m-card"><span className="m-k">总成本</span><span className="m-v">{yuan(m.totalCost)}</span></div>

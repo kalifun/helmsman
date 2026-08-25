@@ -1589,3 +1589,81 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
   font-size: var(--fs-sm); padding: 4px 9px; border-radius: 999px; cursor: pointer;
 }
 .selact-btn:hover { background: var(--bg-gray); color: var(--text); }
+
+/* --- 筛选表（Beautiful UI Filter Table 移植：状态 chips 重组表格）--- */
+.ftable {
+  background: var(--surface); overflow: hidden;
+}
+.ftable-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 12px 14px 10px; border-bottom: 1px solid var(--line);
+}
+.ftable-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--canvas); color: var(--text2); font-family: var(--font);
+  font-size: var(--fs-sm); cursor: pointer;
+}
+.ftable-chip b { font-family: var(--mono); font-weight: 500; font-size: 11px; color: var(--text3); }
+.ftable-chip:hover { border-color: var(--line2); color: var(--text); }
+.ftable-chip.on { background: var(--bg-blue); border-color: transparent; color: var(--blue); }
+.ftable-chip.on b { color: var(--blue); }
+.ftable table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.ftable th {
+  text-align: left; font-size: 11px; font-weight: 500; color: var(--text3);
+  padding: 8px 14px; border-bottom: 1px solid var(--line);
+}
+.ftable td {
+  padding: 8px 14px; font-size: var(--fs-sm); color: var(--text2);
+  border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ftable tr:last-child td { border-bottom: none; }
+.ftable tbody tr.hit { cursor: pointer; transition: background .12s; }
+.ftable tbody tr.hit:hover { background: var(--bg-gray); }
+.ftable-name { font-weight: 500; color: var(--text); }
+.ftable-meta { font-family: var(--mono); font-size: 11px; color: var(--text3); }
+.ftable-empty { text-align: center; padding: 20px 14px !important; white-space: normal !important; }
+
+/* --- 洞察卡（Beautiful UI Insight Cards 移植：分页 + 可 scrub 折线）--- */
+.insight {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-hover); overflow: hidden;
+}
+.insight-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-bottom: 1px solid var(--line);
+}
+.insight-kicker { font-size: var(--fs-sm); font-weight: 600; color: var(--text2); letter-spacing: .02em; }
+.insight-kicker em { font-style: normal; color: var(--text3); font-weight: 500; }
+.insight-nav { margin-left: auto; display: flex; gap: 4px; }
+.insight-arrow {
+  width: 26px; height: 26px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text2); cursor: pointer; font-size: 16px; line-height: 1;
+}
+.insight-arrow:hover:not(:disabled) { background: var(--bg-gray); color: var(--text); }
+.insight-arrow:disabled { opacity: .35; cursor: not-allowed; }
+.insight-body {
+  padding: 14px 16px 10px; font-size: var(--fs-lg); line-height: 1.65; color: var(--text);
+}
+.insight-body code {
+  border-radius: 6px; padding: 1px 6px; font-family: var(--mono); font-size: 13px;
+  background: var(--bg-blue); color: var(--blue);
+}
+.insight-sparks { display: flex; flex-direction: column; gap: 2px; padding: 0 10px 8px; }
+.insight-spark {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 8px; border-radius: var(--r-sm);
+}
+.insight-spark .sl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); color: var(--text2); }
+.insight-spark .sd { font-family: var(--mono); font-size: 11px; }
+.insight-spark .sd.up { color: var(--green); }
+.insight-spark .sd.down { color: var(--red); }
+.insight-spark .sv { font-family: var(--mono); font-size: var(--fs-sm); color: var(--text); }
+.insight-chart { padding: 8px 14px 12px; border-top: 1px solid var(--line); background: var(--surface2); }
+.insight-chart-lab { font-size: 11px; font-weight: 500; color: var(--text3); margin-bottom: 4px; }
+.insight-scrub { display: flex; align-items: center; gap: 12px; }
+.insight-svg { display: block; cursor: crosshair; flex: 1; max-width: 360px; }
+.insight-path { stroke: var(--blue); stroke-width: 1.8; }
+.insight-dot { fill: var(--blue); }
+.insight-readout { font-family: var(--mono); font-size: 11px; color: var(--text3); white-space: nowrap; }
+.insight-foot { padding: 8px 14px 12px; border-top: 1px solid var(--line); }
