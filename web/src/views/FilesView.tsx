@@ -109,7 +109,7 @@ export function FilesView({ pid }: { pid: string }) {
               <div className="note" style={{ marginTop: 12 }}>二进制文件（内容不预览）</div>
             ) : preview.content ? (
               <div className="fx-preview">
-                <CodeBlock code={preview.content} info={ext} />
+                <CodeBlock code={preview.content} info={ext} lines={false} />
               </div>
             ) : (
               <div className="note" style={{ marginTop: 12 }}>{preview.truncated ? '文件过大，未读取内容' : '空文件'}</div>

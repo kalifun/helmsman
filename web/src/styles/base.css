@@ -1870,3 +1870,7 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .hl-num { color: var(--yellow); }
 /* 文件预览：外层容器滚动，内层不再 320px 截断 */
 .fx-preview .codeblock-body { max-height: none; }
+
+/* 无行号模式（文件预览）：代码直接铺满，不留行号列 */
+.codeblock-body.noline .codeblock-line { display: block; }
+.codeblock-body.noline .tx { display: block; white-space: pre; padding: 0 12px 0 0; }

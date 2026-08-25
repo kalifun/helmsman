@@ -80,9 +80,11 @@ interface Props {
   code: string;
   info?: string;
   onCopyError?: () => void;
+  /** 是否显示行号列（默认 true；文件预览等浏览场景可关） */
+  lines?: boolean;
 }
 
-export function CodeBlock({ code, info = '', onCopyError }: Props) {
+export function CodeBlock({ code, info = '', onCopyError, lines = true }: Props) {
   const { lang, filename: infoName } = useMemo(() => parseFenceInfo(info), [info]);
   const isDiff = lang.toLowerCase() === 'diff' || looksLikeDiff(code);
   const parsed = useMemo(() => (isDiff ? parseUnifiedDiff(code) : null), [isDiff, code]);
@@ -134,10 +136,10 @@ export function CodeBlock({ code, info = '', onCopyError }: Props) {
           ))}
         </div>
       ) : (
-        <div className="codeblock-body" role="table">
+        <div className={'codeblock-body' + (lines ? '' : ' noline')} role="table">
           {listing.map((ln, i) => (
             <div key={i} className="codeblock-line ctx">
-              <span className="n">{i + 1}</span>
+              {lines ? <span className="n">{i + 1}</span> : null}
               <span className="tx">{highlightLine(ln)}</span>
             </div>
           ))}
