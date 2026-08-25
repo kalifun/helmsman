@@ -83,7 +83,7 @@ export function HomeView() {
           <div className="metric" style={{ ['--i' as string]: 3 }}>
             <div className="ml">知识沉淀</div>
             <div className="mv">—</div>
-            <div className="ms">目标契约 · 接口未开</div>
+            <div className="ms">跨项目汇总未接（知识库视图可查）</div>
           </div>
         </div>
       </div>

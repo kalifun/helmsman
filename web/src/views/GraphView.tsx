@@ -125,7 +125,7 @@ export function GraphView({ pid }: { pid: string }) {
         </div>
       </div>
       <div style={{ position: 'absolute', bottom: 44, left: 20, fontSize: 11, color: 'var(--text3)' }}>
-        依赖 DAG = 目标契约（建卡时指定 deps · 最新执行快照）{all.length ? '' : ''}
+        依赖 DAG（建卡时指定 deps · 最新执行快照）
       </div>
     </div>
   );
