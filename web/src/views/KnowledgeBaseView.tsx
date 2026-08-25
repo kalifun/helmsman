@@ -25,6 +25,9 @@ const STRENGTH: Record<DebtStatus, { id: string; label: string }> = {
   toxic: { id: 'toxic', label: '有害' },
 };
 
+/** 强度序（排序用）：无引用 < 有害 < 观察中 < 很强 */
+const STRENGTH_ORDER: Record<DebtStatus, number> = { unused: 0, toxic: 1, idle: 2, useful: 3 };
+
 type Filter = 'valid' | 'unused' | 'toxic';
 
 function strengthOf(n: KbNoteRow): { id: string; label: string } {
@@ -148,6 +151,7 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
                   cell: (n) => (
                     <span className="rtable-tags">
                       <span className={'trust trust-' + n.trust}>{TRUST_LABEL[n.trust]}</span>
+                      {isPinned(n) && <span className="trust trust-human-approved">稳定前缀</span>}
                       {n.tags.slice(0, 3).map((t) => <span key={t} className="tag">#{t}</span>)}
                     </span>
                   ),
@@ -163,7 +167,7 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
                   key: 'str',
                   label: '关系',
                   width: '14%',
-                  sort: (a, b) => strengthOf(a).label.localeCompare(strengthOf(b).label, 'zh'),
+                  sort: (a, b) => (a.debt ? STRENGTH_ORDER[a.debt.status] : 2) - (b.debt ? STRENGTH_ORDER[b.debt.status] : 2),
                   cell: (n) => {
                     const s = strengthOf(n);
                     return <span className={'rtable-str ' + s.id}>{s.label}</span>;

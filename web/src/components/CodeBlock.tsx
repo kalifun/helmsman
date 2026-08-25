@@ -1,7 +1,7 @@
 // 职责：代码块（Beautiful UI「Code Block」移植，MIT © Shane Levine）——
 //   带行号的 listing；若内容是 unified diff（或 fence 语言为 diff）可切 Code / Diff。
 //   纯展示；复制走 clipboard，失败由调用方 toast（onCopyError）。
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 export type DiffKind = 'meta' | 'hunk' | 'add' | 'del' | 'ctx';
 
@@ -88,12 +88,15 @@ export function CodeBlock({ code, info = '', onCopyError }: Props) {
   const filename = infoName || parsed?.filename;
   const [view, setView] = useState<'code' | 'diff'>(isDiff ? 'diff' : 'code');
   const [copied, setCopied] = useState(false);
+  const timerRef = useRef<number | null>(null);
+  useEffect(() => () => { if (timerRef.current != null) window.clearTimeout(timerRef.current); }, []);
 
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
+      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+      timerRef.current = window.setTimeout(() => setCopied(false), 1200);
     } catch {
       onCopyError?.();
     }

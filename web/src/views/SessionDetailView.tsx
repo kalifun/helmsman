@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useUi, writeHash } from '../store/ui';
 import { useProjection, effectiveStatus, waitingLabel, type TaskState } from '../store/projection';
+import { listApprovals, decideApproval } from '../api/client';
 import { Button } from '../components/Button';
 import { TrajectoryView } from './TrajectoryView';
 import { Markdown } from '../components/Markdown';
@@ -141,9 +142,25 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
   const copyOut = (t: string) => {
     void navigator.clipboard.writeText(t).then(() => toast('已复制')).catch(() => toast('复制失败'));
   };
+
+  // 批复决策：走正式批复 API（队列放行 + 决策记录 + 策略沉淀），不是发评论。
+  // 与 TaskDetailDrawer.decideWaiting 同语义（Waiting 放行 = 走队列）。
+  const decideWaiting = async (outcome: 'approved' | 'rejected') => {
+    if (conn !== 'online') { toast('断连期间禁用控制操作'); return; }
+    try {
+      const approvals = await listApprovals(pid);
+      const appr = approvals.find((a) => a.execution_id === sid && a.outcome === null);
+      if (!appr) { toast('未找到待批复项（可能已决策）'); return; }
+      const ok = await decideApproval(appr.id, outcome, outcome === 'approved' ? '批准继续' : '需要修改');
+      toast(ok ? `已${outcome === 'approved' ? '批准' : '拒绝'} · 决策已送达 agent` : '决策失败');
+      if (ok && card) useProjection.getState().loadCard(card.id);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e));
+    }
+  };
   const waitingFollow = task?.waiting ? [
-    { id: 'approve', label: '批准继续', onClick: () => { void send('批复：批准继续'); } },
-    { id: 'revise', label: '需要修改', onClick: () => { void send('批复：需要修改'); } },
+    { id: 'approve', label: '批准继续', onClick: () => { void decideWaiting('approved'); } },
+    { id: 'revise', label: '需要修改', onClick: () => { void decideWaiting('rejected'); } },
   ] : undefined;
   const toolSources = messages
     .flatMap((x) => (x.kind === 'think' ? (x.rows ?? []) : []))
@@ -154,8 +171,8 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
       return acc;
     }, []);
   const commands: SlashCommand[] = [
-    { id: 'approve', label: '批准继续', hint: '批复', run: () => { void send('批复：批准继续'); } },
-    { id: 'revise', label: '需要修改', hint: '批复', run: () => { void send('批复：需要修改'); } },
+    { id: 'approve', label: '批准继续', hint: '正式批复', run: () => { void decideWaiting('approved'); } },
+    { id: 'revise', label: '需要修改', hint: '正式批复', run: () => { void decideWaiting('rejected'); } },
   ];
 
   return (
