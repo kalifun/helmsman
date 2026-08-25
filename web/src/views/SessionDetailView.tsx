@@ -1,5 +1,5 @@
 // 职责：会话钻入独立页（O7：`#/p/:pid/t/:sid` 全屏 DSH 式会话）——
-//   聊天视图（消息气泡 + 思考折叠 + 工具调用 + 流式 + 输入框=评论控制通道）
+//   聊天视图（思考折叠 + 工具 + 流式 + Prompt Bar 控制通道）
 //   轨迹视图（复用 TrajectoryView 时间线）。
 // 数据：comments（user 消息）+ activities（agent 活动流）+ usage（成本）。
 // 思考/工具：按回合归组进 Thinking 块（Beautiful UI 移植）—— 推理+工具同回合合并展示。
@@ -12,6 +12,8 @@ import { Markdown } from '../components/Markdown';
 import { Thinking, type ThinkRow } from '../components/Thinking';
 import { StreamingText } from '../components/StreamingText';
 import { LoadingState } from '../components/LoadingState';
+import { PromptBar, type PromptBarHandle, type SlashCommand } from '../components/PromptBar';
+import { SelectionActions, promptFromSelection } from '../components/SelectionActions';
 
 type SessionTab = 'chat' | 'trajectory';
 
@@ -30,7 +32,9 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
   const toast = useUi((s) => s.toast);
   const [tab, setTab] = useState<SessionTab>('chat');
   const [input, setInput] = useState('');
+  const [kbHits, setKbHits] = useState<{ id: string; title: string; summary: string }[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<PromptBarHandle>(null);
 
   // 反查归属：卡执行 → card.executions；简单会话 → chats（A 组）
   const cardEntry = Object.entries(cards[pid] ?? {}).find(([, c]) => c.executions[sid]);
@@ -48,8 +52,8 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
     }
   }, [task?.activities.length, task?.comments?.length, stream, tab]);
 
-  const send = async () => {
-    const v = input.trim();
+  const send = async (raw?: string) => {
+    const v = (raw ?? input).trim();
     if (!v) return;
     if (conn !== 'online') { toast('断连期间禁用控制操作'); return; }
     setInput('');
@@ -59,7 +63,17 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
       if (card) useProjection.getState().loadCard(card.id);
     } else {
       toast('发送失败');
+      setInput(v);
     }
+  };
+
+  const searchKb = async (q: string) => {
+    if (!q.trim()) { setKbHits([]); return; }
+    try {
+      const r = await fetch(`/api/kb/search?project=${encodeURIComponent(pid)}&q=${encodeURIComponent(q.trim())}`);
+      const rows = (await r.json()) as { id: string; title: string; summary: string }[];
+      setKbHits(Array.isArray(rows) ? rows.slice(0, 8) : []);
+    } catch { setKbHits([]); }
   };
 
   // 折叠消息序列：先 user comments，再 agent 活动流（推理/工具按回合归组，正文隔断归组）
@@ -124,6 +138,10 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
 
   const st = task ? effectiveStatus(task) : 'Pending';
   const running = task?.status === 'Running';
+  const commands: SlashCommand[] = [
+    { id: 'approve', label: '批准继续', hint: '批复', run: () => { void send('批复：批准继续'); } },
+    { id: 'revise', label: '需要修改', hint: '批复', run: () => { void send('批复：需要修改'); } },
+  ];
 
   return (
     <div id="sessiondetail">
@@ -148,39 +166,46 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
 
       {tab === 'chat' ? (
         <div className="sd-chat" ref={scrollRef}>
-          {messages.length === 0 && !stream && (
-            <div className="ph-empty">
-              {running ? <LoadingState label="引擎思考中…" /> : '暂无消息（引擎执行中或未开始）'}
-            </div>
-          )}
-          {messages.map((m, i) => {
-            if (m.kind === 'user') {
-              return (
-                <div key={m.id} className="sess-row user">
-                  <div className="sess-bub user">{m.text}</div>
-                </div>
-              );
-            }
-            if (m.kind === 'think') {
+          <SelectionActions
+            onAction={(kind, text) => {
+              setInput(promptFromSelection(kind, text));
+              barRef.current?.focus();
+            }}
+          >
+            {messages.length === 0 && !stream && (
+              <div className="ph-empty">
+                {running ? <LoadingState label="引擎思考中…" /> : '暂无消息（引擎执行中或未开始）'}
+              </div>
+            )}
+            {messages.map((m, i) => {
+              if (m.kind === 'user') {
+                return (
+                  <div key={m.id} className="sess-row user">
+                    <div className="sess-bub user">{m.text}</div>
+                  </div>
+                );
+              }
+              if (m.kind === 'think') {
+                return (
+                  <div key={m.id} className="sess-row">
+                    <Thinking rows={m.rows ?? []} running={running && i === messages.length - 1} />
+                  </div>
+                );
+              }
               return (
                 <div key={m.id} className="sess-row">
-                  <Thinking rows={m.rows ?? []} running={running && i === messages.length - 1} />
+                  <div className={'sess-bub md-bub' + ((m.text || '').indexOf('失败') === 0 ? ' err' : '')}>
+                    <Markdown text={m.text ?? ''} />
+                  </div>
                 </div>
               );
-            }
-            return (
-              <div key={m.id} className="sess-row">
-                <div className={'sess-bub md-bub' + ((m.text || '').indexOf('失败') === 0 ? ' err' : '')}>
-                  <Markdown text={m.text ?? ''} />
-                </div>
+            })}
+            {stream ? (
+              <div className="sess-row">
+                <StreamingText text={stream} streaming className="sess-stream" />
               </div>
-            );
-          })}
-          {stream ? (
-            <div className="sess-row">
-              <StreamingText text={stream} streaming className="sess-stream" />
-            </div>
-          ) : null}
+            ) : null}
+          </SelectionActions>
         </div>
       ) : (
         <div className="sd-traj">
@@ -189,13 +214,18 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
       )}
 
       <footer className="sd-input">
-        <textarea
+        <PromptBar
+          ref={barRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="评论 = 控制通道（指示 / 引导 / 批复）· Enter 发送"
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+          onChange={setInput}
+          onSend={() => void send()}
+          placeholder="评论 = 控制通道（指示 / 引导 / 批复）· @ 提及  / 命令"
+          disabled={conn !== 'online'}
+          mentions={kbHits.map((h) => ({ id: h.id, title: h.title, sub: h.summary?.slice(0, 60) }))}
+          onMentionQuery={(q) => void searchKb(q)}
+          commands={commands}
+          model={task?.model}
         />
-        <Button variant="primary" disabled={!input.trim() || conn !== 'online'} onClick={() => void send()}>发送</Button>
       </footer>
     </div>
   );

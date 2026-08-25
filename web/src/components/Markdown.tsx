@@ -1,6 +1,8 @@
 // 轻量 Markdown 渲染（无依赖）——支持标题/加粗/斜体/行内代码/代码块/列表/表格/分隔线。
 // 用途：计划内容、agent 消息等 markdown 文本展示（不引大库，避免构建链负担）。
+// 代码块走 CodeBlock（Beautiful UI 移植）：行号 listing；unified diff 可切 Code/Diff。
 import { useMemo, type ReactNode } from 'react';
+import { CodeBlock } from './CodeBlock';
 
 /** 行内格式：**加粗**、*斜体*、`代码` */
 function inline(text: string): ReactNode[] {
@@ -36,11 +38,12 @@ export function Markdown({ text }: { text: string }) {
       const line = lines[i];
       // 代码块
       if (line.trim().startsWith('```')) {
+        const info = line.trim().slice(3);
         const buf: string[] = [];
         i++;
         while (i < lines.length && !lines[i].trim().startsWith('```')) { buf.push(lines[i]); i++; }
         i++; // 跳过闭合 ```
-        out.push(<pre key={k++} className="md-pre"><code>{buf.join('\n')}</code></pre>);
+        out.push(<CodeBlock key={k++} code={buf.join('\n')} info={info} />);
         continue;
       }
       // 标题
