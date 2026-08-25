@@ -159,7 +159,6 @@ export function ProjectHomeView({ pid }: { pid: string }) {
                 ) : null}
               </div>
             )}
-            <div className="ph-hint2">当前分支 + 工作区修改 · 点击查看文件</div>
           </div>
         </div>
 
