@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
 import { LoadingState } from '../components/LoadingState';
 import { CodeBlock } from '../components/CodeBlock';
+import { Markdown } from '../components/Markdown';
 
 interface FNode { name: string; type: 'file' | 'dir'; children?: FNode[] }
 
@@ -73,6 +74,15 @@ export function FilesView({ pid }: { pid: string }) {
   );
 
   const ext = preview?.name.includes('.') ? preview.name.split('.').pop()! : '';
+  const isMd = ext === 'md' || ext === 'markdown' || ext === 'mdown';
+  const renderBody = (): React.ReactNode => {
+    if (isMd) return <div className="fx-preview"><div className="md"><Markdown text={preview!.content} /></div></div>;
+    return (
+      <div className="fx-preview">
+        <CodeBlock code={preview!.content} info={ext} />
+      </div>
+    );
+  };
 
   return (
     <div id="filesview">
@@ -108,9 +118,7 @@ export function FilesView({ pid }: { pid: string }) {
             {preview.binary ? (
               <div className="note" style={{ marginTop: 12 }}>二进制文件（内容不预览）</div>
             ) : preview.content ? (
-              <div className="fx-preview">
-                <CodeBlock code={preview.content} info={ext} />
-              </div>
+              renderBody()
             ) : (
               <div className="note" style={{ marginTop: 12 }}>{preview.truncated ? '文件过大，未读取内容' : '空文件'}</div>
             )}

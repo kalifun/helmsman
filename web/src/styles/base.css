@@ -1874,3 +1874,6 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 /* 无行号模式（文件预览）：代码直接铺满，不留行号列 */
 .codeblock-body.noline .codeblock-line { display: block; }
 .codeblock-body.noline .tx { display: block; white-space: pre; padding: 0 12px 0 0; }
+
+/* 文件预览里的 Markdown 渲染容器 */
+.fx-preview .md { font-size: 13px; line-height: 1.7; color: var(--text); max-height: 60vh; overflow-y: auto; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
