@@ -38,7 +38,7 @@ import {
 } from './projection.ts'
 import { startTailer } from './observe/tail.ts'
 import { recoverStore } from './recovery.ts'
-import { retrieveHybrid, deriveQueries, makeNote, scoreNoteDebt, debtDemoteWeight, detectCitedEntries, withStableTag } from './kb.ts'
+import { retrieveHybrid, deriveQueries, makeNote, findDuplicateSediment, scoreNoteDebt, debtDemoteWeight, detectCitedEntries, withStableTag } from './kb.ts'
 import { assembleBrief, renderBriefPrompt, selectStableNotes, extractConclusion, type Brief } from './assembly.ts'
 import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
@@ -350,7 +350,7 @@ async function main(): Promise<void> {
   const acp = engine.acp
 
   /** Done 后规则提炼入库。交付档挂验收时推迟到人批准，避免未验收就污染 KB。 */
-  function persistAgentNote(projectId: string, cardId: string, title: string, t: TaskState): void {
+  async function persistAgentNote(projectId: string, cardId: string, title: string, t: TaskState): Promise<void> {
     const conclusion = extractConclusion({
       taskTitle: title,
       comments: t.comments.map((cm) => ({ who: cm.who, text: cm.text })),
@@ -359,6 +359,12 @@ async function main(): Promise<void> {
       status: t.status,
     })
     if (!conclusion) return
+    // 重复沉淀检测（知识演化）：语义上已有同结论 → 跳过，防知识库膨胀/装配噪声
+    const dup = await findDuplicateSediment(storage.listNotes(projectId), conclusion)
+    if (dup) {
+      console.log(`[kb] 跳过重复沉淀「${conclusion.title}」≈「${dup.note.title}」(${dup.sim.toFixed(2)})`)
+      return
+    }
     storage.upsertNote(makeNote({
       projectId,
       title: conclusion.title,
@@ -661,7 +667,7 @@ async function main(): Promise<void> {
           const hangAcceptance = presetSetting === 'delivery' && t.status === 'Done' && t.waiting === null && presetApproval !== 'yolo'
           // 知识沉淀（M4 §3.3）：裸跑不沉淀；交付档等人批准后再入库
           if (opts.brief !== false && !hangAcceptance) {
-            persistAgentNote(projectId, cardId, c.title, t)
+            await persistAgentNote(projectId, cardId, c.title, t)
           }
           if (hangAcceptance) {
             const evidence = buildAcceptanceEvidence({
@@ -948,18 +954,23 @@ async function main(): Promise<void> {
       status: t.status,
     })
     if (conclusion) {
-      const note = makeNote({
-        projectId,
-        title: conclusion.title,
-        content: conclusion.content,
-        tags: ['auto'],
-        keywords: conclusion.keywords,
-        summary: conclusion.summary,
-        sourceKind: 'task',
-        sourceRef: cardId,
-        trust: 'agent-generated',
-      })
-      storage.upsertNote(note)
+      const dup = await findDuplicateSediment(storage.listNotes(projectId), conclusion)
+      if (!dup) {
+        const note = makeNote({
+          projectId,
+          title: conclusion.title,
+          content: conclusion.content,
+          tags: ['auto'],
+          keywords: conclusion.keywords,
+          summary: conclusion.summary,
+          sourceKind: 'task',
+          sourceRef: cardId,
+          trust: 'agent-generated',
+        })
+        storage.upsertNote(note)
+      } else {
+        console.log(`[kb] 跳过重复沉淀「${conclusion.title}」≈「${dup.note.title}」(${dup.sim.toFixed(2)})`)
+      }
     }
     await settleWorktreeOnDone(projectId, cardId, sid, at)
   }
@@ -1716,7 +1727,7 @@ async function main(): Promise<void> {
           const ct = card?.executions[sid]
           const pAcc = proj.projects[appr.project_id]
           if (outcome === 'approved' && card && ct) {
-            persistAgentNote(appr.project_id, cardId, card.title, ct)
+            await persistAgentNote(appr.project_id, cardId, card.title, ct)
           }
           if (outcome === 'rejected' && ct) {
             // M6：拒绝 = 改动被丢弃 → 卡置 Cancelled，下游不得按"完成"放行

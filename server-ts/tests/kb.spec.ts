@@ -3,7 +3,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { extractConclusion, assembleBrief, renderBriefPrompt, selectStableNotes } from '../src/assembly.ts'
-import { deriveQueries, retrieve, retrieveHybrid, makeNote, detectCitedEntries, scoreNoteDebt, debtDemoteWeight, withStableTag } from '../src/kb.ts'
+import { deriveQueries, retrieve, retrieveHybrid, makeNote, findDuplicateSediment, detectCitedEntries, scoreNoteDebt, debtDemoteWeight, withStableTag } from '../src/kb.ts'
 import { compareGroup, compareReport } from '../src/experiment.ts'
 import type { MetricRow } from '../src/storage.ts'
 
@@ -231,5 +231,39 @@ describe('混合检索（P2 向量：规则 + 语义融合）', () => {
     const embedQuery = async () => { const v = new Float32Array(4); v[0] = 1; v[1] = 1; return [v] }
     const hits = await retrieveHybrid(notes, deriveQueries('修 transfer.go 的锁'), '修 transfer.go 的锁', { limit: 5, embedNotes, embedQuery })
     expect(hits[0].note.id).toBe('n1')
+  })
+})
+
+describe('重复沉淀检测（知识演化：写入路径去重）', () => {
+  const N = (id: string, title: string, content: string[] = []): ReturnType<typeof makeNote> =>
+    ({ ...makeNote({ projectId: 'p', title, content, tags: [], keywords: [], summary: '', sourceKind: 'human', sourceRef: 'x', trust: 'human-approved' }), id })
+  // 向量 = [cosθ, sinθ, 0]，candidate 固定 [1,0,0] → cos(candidate, note) = note[0]（相似度精确可控）
+  const vecOf = (c: number) => new Float32Array([c, Math.sqrt(Math.max(0, 1 - c * c)), 0])
+  // candidate 固定 [1,0,0]；笔记 = vecOf(tags[id]) → cos = tags[id]（相似度精确可控）
+  const fakeEmbed = (tags: Record<string, number>) => ({
+    embedNotesFn: async (ns: ReturnType<typeof makeNote>[]) => ns.map((n) => vecOf(tags[n.id] ?? 0)),
+    embedTextFn: async () => [vecOf(1)],
+  })
+
+  it('语义高度相似（同任务重跑结论）→ 判重复并返回最相似笔记', async () => {
+    const notes = [N('a', 'transfer.go 锁竞态根因', ['锁时序不一致导致死锁']), N('b', '预算门验证', ['超过预算拒绝'])]
+    const r = await findDuplicateSediment(notes, { title: 'transfer.go 锁竞态', content: ['锁获取顺序不一致会死锁'] },
+      fakeEmbed({ a: 0.99, b: 0.3 }).embedNotesFn, fakeEmbed({ a: 0.99, b: 0.3 }).embedTextFn)
+    expect(r).not.toBeNull()
+    expect(r!.note.id).toBe('a')
+    expect(r!.sim).toBeGreaterThan(0.85)
+  })
+
+  it('跨主题低相似 → 放行（不拦截）', async () => {
+    const notes = [N('a', '冷链乳制品安全校验', ['冷链路温度验证'])]
+    const r = await findDuplicateSediment(notes, { title: '登录页表单校验', content: ['邮箱密码校验'] },
+      fakeEmbed({ a: 0.4 }).embedNotesFn, fakeEmbed({ a: 0.4 }).embedTextFn)
+    expect(r).toBeNull()
+  })
+
+  it('embedder 不可用 → 放行（降级零破坏）', async () => {
+    const notes = [N('a', '任何主题', ['内容'])]
+    const r = await findDuplicateSediment(notes, { title: 'x', content: ['y'] }, async () => null, async () => null)
+    expect(r).toBeNull()
   })
 })

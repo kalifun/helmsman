@@ -143,6 +143,33 @@ export async function retrieveHybrid(
   return scored.filter((s) => s.score >= threshold).slice(0, limit)
 }
 
+/** 重复沉淀阈值：同任务重跑结论 ≈ 0.95+；同主题不同任务 0.6-0.85；无关 <0.5（bge-zh） */
+const DUP_THRESHOLD = 0.85
+
+/**
+ * 沉淀前重复检测（知识演化第一步：防止自动沉淀膨胀知识库 + 装配噪声）。
+ * candidate（新结论）与现有笔记的语义相似度；最高 sim ≥ 0.85 → 视为重复沉淀，返回最相似笔记。
+ * embedding 不可用 → null（不拦截，照常入库）。
+ */
+export async function findDuplicateSediment(
+  notes: KbNote[],
+  candidate: { title: string; content: string[] },
+  embedNotesFn: (notes: KbNote[]) => Promise<Float32Array[] | null> = embedNotes,
+  embedTextFn: (texts: string[], o?: { query?: boolean }) => Promise<Float32Array[] | null> = embedTexts,
+): Promise<{ note: KbNote; sim: number } | null> {
+  if (notes.length === 0) return null
+  const vecs = await embedNotesFn(notes)
+  const cv = await embedTextFn([`${candidate.title}\n${candidate.content.join('\n').slice(0, 2000)}`])
+  if (!vecs || !cv || vecs.length !== notes.length) return null
+  let best: { note: KbNote; sim: number } | null = null
+  for (let i = 0; i < notes.length; i++) {
+    const sim = cosine(cv[0], vecs[i])
+    if (best == null || sim > best.sim) best = { note: notes[i], sim }
+  }
+  if (best != null && best.sim >= DUP_THRESHOLD) return best
+  return null
+}
+
 export type DebtStatus = 'idle' | 'useful' | 'unused' | 'toxic'
 
 export interface NoteDebt {
