@@ -1087,7 +1087,7 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .m-charts { display: flex; flex-direction: column; gap: var(--sp-4); }
 .m-line { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--sp-3); }
 .m-line-label { font-size: var(--fs-sm); font-weight: 600; color: var(--text2); margin-bottom: 6px; }
-.m-svg { display: block; width: 100%; max-width: 720px; }
+.m-svg { display: block; width: 100%; } /* 宽度自适应容器（原 max-width:720 截断铺满，已移除） */
 .m-grid { stroke: var(--line); stroke-width: 1; }
 .m-axis { font-size: 9.5px; fill: var(--text3); font-family: var(--mono); text-anchor: end; }
 .m-path { stroke-width: 1.8; }
