@@ -1,8 +1,23 @@
 diff --git a/lib/index.js b/lib/index.js
-index d7ca62d..cff2a58 100644
+index d7ca62d..f858a89 100644
 --- a/lib/index.js
 +++ b/lib/index.js
-@@ -404,10 +404,32 @@ function apply(ctx, config) {
+@@ -363,7 +363,13 @@ function apply(ctx, config) {
+ 		if (record === void 0 || request.callId === void 0) return next();
+ 		return conn.requestPermission({
+ 			sessionId: record.agent.session.id,
+-			toolCall: { toolCallId: request.callId },
++			// [helmsman-patch] 透传工具名 + 审批原因（approval/request 带 toolName/reason，协议 _meta 是开放扩展缝）：
++			// 客户端（Helmsman 批复队列）据此展示什么命令、为什么卡住，不丢上下文。
++			toolCall: {
++				toolCallId: request.callId,
++				...(request.toolName !== void 0 ? { name: request.toolName } : {}),
++				...(request.reason !== void 0 ? { _meta: { reason: request.reason } } : {})
++			},
+ 			options: [{
+ 				optionId: "allow-once",
+ 				name: "Allow once",
+@@ -404,10 +410,32 @@ function apply(ctx, config) {
  				assertOpen();
  				validateSessionParams(params);
  				const sessionId = SessionId(randomUUID());

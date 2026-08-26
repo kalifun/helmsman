@@ -356,6 +356,50 @@ async function main(): Promise<void> {
 
   const acp = engine.acp
 
+  // ---------- 命令级白名单（P1）：ACP session/request_permission → 批复队列 ----------
+  // 引擎侧 guard 预设（tools/pre-execute）命中危险命令 → ask → approval 桥 → 本回调。
+  // 本回调把请求挂成 Waiting{permission} + 插入批复队列；用户决策后 respondPermission 回复引擎，
+  // 挂起的 turn 恢复（命令按决策执行/拒绝）。
+  const pendingPermission = new Map<string, string>() // callId → sid（决策时按 callId 回）
+  acp.setOnPermission((req) => {
+    const callId = req.toolCall?.toolCallId
+    const sid = req.sessionId
+    const pid = proj.sessionProject[sid]
+    const cardId = proj.sessionCard[sid]
+    const t = pid ? proj.projects[pid]?.cards[cardId]?.executions[sid] : undefined
+    if (!t || !callId) {
+      // 未知会话/无 callId → 取消（fail-closed）
+      acp.respondPermission(callId, { outcome: { outcome: 'cancelled' } })
+      return
+    }
+    const toolName = req.toolCall?.name ?? 'bash'
+    const reason = (req.toolCall as { _meta?: { reason?: string } })._meta?.reason
+      ?? `命令级白名单：工具「${toolName}」需要你授权`
+    const payload: Record<string, unknown> = {
+      toolName,
+      callId,
+      command: (req.toolCall?.arguments as Record<string, unknown> | undefined)?.command ?? null,
+      options: req.options.map((o) => o.optionId),
+    }
+    // 挂 Waiting{permission}（前端显示"权限请求"，卡锁死）
+    t.waiting = { kind: 'permission', reason, payload }
+    storage.insertApproval({
+      id: 0,
+      project_id: pid,
+      execution_id: sid,
+      kind: 'permission',
+      payload,
+      reason,
+      outcome: null,
+      comment: null,
+      created_at: nowMs(),
+      decided_at: null,
+      suspended_at: null,
+    })
+    pendingPermission.set(callId, sid)
+    console.warn(`[guard] ${sid.slice(0, 8)} 需要授权：${toolName}（${reason.slice(0, 60)}…）`)
+  })
+
   /** Done 后规则提炼入库。交付档挂验收时推迟到人批准，避免未验收就污染 KB。 */
   async function persistAgentNote(projectId: string, cardId: string, title: string, t: TaskState): Promise<void> {
     const conclusion = extractConclusion({
@@ -524,6 +568,13 @@ async function main(): Promise<void> {
     finishSession(prj, sid, stopReason, at)
     const pid = prj.sessionProject[sid]
     if (pid) decSlot(pid)
+    // 命令级白名单：任务终态时清理该会话未决的权限请求（防止 callId 泄漏挂起表）
+    for (const [callId, ppSid] of pendingPermission) {
+      if (ppSid === sid) {
+        pendingPermission.delete(callId)
+        acp.respondPermission(callId, { outcome: { outcome: 'cancelled' } })
+      }
+    }
   }
 
   /** 并发占用位（防竞态：countRunning 是投影现算，任务标 Running 前有窗口，
@@ -584,7 +635,14 @@ async function main(): Promise<void> {
     const wt = prepareTaskWorktree(p.path, cardId, wtKey)
     let sid: string
     try {
-      sid = await acp.sessionNew(wt?.path ?? p.path, opts.presetId ?? undefined)
+      // 命令级白名单（P1）：默认给执行挂 guard 预设（危险命令 → 批复）。
+      // yolo 审批轴（全放手）跳过——不拦命令，与"跳过检查点"的语义一致。
+      // distill 等内部预设会话不受影响（它们走独立 sessionNew 调用，不经此路径）。
+      const approvalAxis = opts.presetSnapshot
+        ? (() => { try { return (JSON.parse(opts.presetSnapshot) as { approval?: string }).approval ?? 'ask' } catch { return 'ask' } })()
+        : storage.defaultProfile(projectId)?.approval ?? 'ask'
+      const enginePreset = opts.presetId ?? (approvalAxis === 'yolo' ? undefined : 'guard')
+      sid = await acp.sessionNew(wt?.path ?? p.path, enginePreset)
     } catch (e) {
       decSlot(projectId)
       if (wt) discardTaskWorktree(p.path, wt)
@@ -1833,6 +1891,25 @@ async function main(): Promise<void> {
               created_at: oldEx?.created_at ?? nowMs(),
             })
           }
+        }
+        // 命令级白名单决策（P1）：批准 = 回复引擎 allow-once，命令执行；拒绝 = reject-once，命令被拒。
+        // 挂起的 turn 由引擎继续（agent 看到命令结果/拒绝原因，调整方案）。
+        if (appr.kind === 'permission') {
+          const callId = typeof appr.payload?.callId === 'string' ? appr.payload.callId : null
+          if (callId) {
+            const ppSid = pendingPermission.get(callId)
+            if (ppSid) {
+              pendingPermission.delete(callId)
+              acp.respondPermission(callId, {
+                outcome: { outcome: 'selected', optionId: outcome === 'approved' ? 'allow-once' : 'reject-once' },
+              })
+            } else {
+              // 决策时请求已不在挂起表（如引擎已超时/会话结束）→ 仅记录
+              console.warn(`[guard] ${sid.slice(0, 8)} 权限决策时 callId=${callId} 已不在挂起表`)
+            }
+          }
+          send(200, { ok: true, outcome, id })
+          return
         }
         // Waiting{cost} 决策（P1.5）：批准 = 接受成本，任务完成；拒绝 = 停止（Cancelled）
         if (appr.kind === 'cost') {

@@ -1,0 +1,5 @@
+# [helmsman] 命令守卫预设：挂载命令级白名单插件（tools/pre-execute 拦截）。
+# 相对路径插件（./guard-plugin.js）随预设目录走（agent-presets README：preset 自带文件）。
+# 危险 bash 命令（rm -rf / sudo / git push / git reset --hard 等）→ ask → 审批缝 → Helmsman 批复队列。
+- id: guard
+  name: ./guard-plugin.js

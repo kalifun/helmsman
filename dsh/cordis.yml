@@ -133,6 +133,15 @@
   name: '@deepseek-ai/dsh-tool-fs'
 
 
+# 命令级白名单（P1）：工具审批缝 —— guard 预设命中危险命令返回 ask 时，
+# 经 approval/request waterfall 路由到 dsh-acp 桥 → ACP requestPermission → Helmsman 批复队列。
+# 缺 answerer 时 fail-closed（拒绝命令，不静默放行）。
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: ask
+
+
 # 预设 roster（P0 预设落地）：每任务可按 _meta.agentPreset 挂不同工具/人格。
 # 根目录 = 本仓库预设（system）+ ~/.dsh/.agent-presets（user，自动附加）。
 - id: agent-presets
