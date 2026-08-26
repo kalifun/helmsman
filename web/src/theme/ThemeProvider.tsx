@@ -4,6 +4,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { create } from 'zustand';
 import { TK_MAP, findTheme, SYSTEM_THEME_ID, type Theme } from './themes';
+import { applySkin, clearSkin, getActiveSkin, loadActiveSkinId, setActiveSkin, type UserSkin } from './skin';
 
 export type AtmoLevel = 'off' | 'soft' | 'on' | 'strong';
 
@@ -82,10 +83,32 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const themeId = useThemeStore((s) => s.themeId);
   const radius = useThemeStore((s) => s.radius);
   const [theme, setTheme] = useState<Theme>(() => resolveTheme(themeId));
+  const [skin, setSkin] = useState<UserSkin | null>(() => getActiveSkin());
 
+  // 内置主题 token 注入（基础层；皮肤 token 覆盖在其上，见下方 applySkin）
   useEffect(() => {
     applyTokens(theme);
   }, [theme]);
+
+  // 皮肤注入：token 覆盖 + css + 背景。激活皮肤时每次主题/皮肤变化都重新应用
+  // （皮肤 token 需要压在最新内置主题之上；css/背景独立于内置主题）。
+  // 还原（skin=null）时先清皮肤注入，再重放内置主题 token（皮肤覆盖过的键归位）。
+  useEffect(() => {
+    if (skin) {
+      applyTokens(theme);
+      applySkin(skin);
+    } else {
+      clearSkin();
+      applyTokens(theme);
+    }
+  }, [skin, theme]);
+
+  // 外部切换皮肤（ThemePicker 导入/选择后调用 setSkin 由本组件暴露）
+  useEffect(() => {
+    const onStorage = () => setSkin(getActiveSkin());
+    window.addEventListener('helmsman-skin-changed', onStorage);
+    return () => window.removeEventListener('helmsman-skin-changed', onStorage);
+  }, []);
 
   useEffect(() => {
     applyRadius(radius);
@@ -106,4 +129,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ theme, themeId }), [theme, themeId]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/** 激活/取消皮肤（ThemePicker 用；触发 helmsman-skin-changed 让 Provider 应用）。 */
+export function activateSkin(id: string | null): void {
+  setActiveSkin(id);
+  window.dispatchEvent(new Event('helmsman-skin-changed'));
 }
