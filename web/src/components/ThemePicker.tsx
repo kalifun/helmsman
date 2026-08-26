@@ -1,6 +1,8 @@
-// 职责：ThemePicker —— 设置里的主题选择器（色板卡网格 + 跟随系统）+ 皮肤系统（导入/导出/管理）+ Fine-tune。
+// 职责：ThemePicker —— 外观选择器：内置主题（6 套 + 跟随系统）与自定义皮肤（互斥单选）。
+// 概念：皮肤 = 主题的完全替代（自带完整视觉：色板/字体/背景），选皮肤不再看内置主题颜色。
+// 交互：点内置主题 → 自动停用皮肤；点皮肤 → 皮肤激活、主题不高亮。二者单选互斥。
 // 皮肤（Skin System v2）：theme.json（token 子集）+ theme.css（彻底变装）+ background；
-// 导入 json/zip → 校验 → localStorage 持久化 → 激活；一键还原 = 回内置主题。
+// 导入 json/zip → 校验 → localStorage 持久化 → 激活；删除皮肤 = 回内置主题。
 import { useRef, useState } from 'react';
 import { THEMES, SYSTEM_THEME_ID, TK_MAP, type TokenKey } from '../theme/themes';
 import { useThemeStore } from '../theme/ThemeProvider';
@@ -28,6 +30,21 @@ export function ThemePicker() {
   const flash = (text: string) => {
     setMsg(text);
     window.setTimeout(() => setMsg(''), 3000);
+  };
+
+  /** 选内置主题 → 停用皮肤（互斥：皮肤与主题单选） */
+  const pickTheme = (id: string) => {
+    if (activeSkinId) {
+      activateSkin(null);
+      setActiveSkinId(null);
+    }
+    setTheme(id);
+  };
+
+  /** 选皮肤 → 激活（主题保持当前内置作基础，但 UI 不高亮主题） */
+  const pickSkin = (id: string) => {
+    activateSkin(id);
+    refresh();
   };
 
   /** 导出当前主题 → theme.json 下载（含 25 键当前值，可作皮肤基础） */
@@ -83,25 +100,29 @@ export function ThemePicker() {
     flash('皮肤已删除');
   };
 
-  /** 一键应用内置示例皮肤（保存到用户皮肤表 + 激活） */
+  /** 一键添加并应用内置示例皮肤 */
   const applyDemo = (demo: UserSkin) => {
     saveSkin({ ...demo, createdAt: Date.now() });
     activateSkin(demo.id);
     refresh();
-    flash(`已应用示例皮肤「${demo.name}」`);
+    flash(`已应用「${demo.name}」`);
   };
+
+  const skinList = Object.values(skins);
 
   return (
     <>
       <div className="set-row">
         <div className="lbl">
-          主题
-          <div className="desc">六套主题 + 跟随系统 + 自定义皮肤</div>
+          外观
+          <div className="desc">内置主题与自定义皮肤二选一 · 皮肤 = 主题的完全替代（色板/字体/背景）</div>
         </div>
       </div>
+
+      {/* 内置主题网格（皮肤激活时不高亮） */}
       <div className="theme-grid">
         {THEMES.map((t) => (
-          <button key={t.id} className={'theme-card' + (themeId === t.id ? ' sel' : '')} onClick={() => setTheme(t.id)}>
+          <button key={t.id} className={'theme-card' + (!activeSkinId && themeId === t.id ? ' sel' : '')} onClick={() => pickTheme(t.id)}>
             <span className="swatches">
               {t.sw.map((c) => <i key={c} style={{ background: c }} />)}
             </span>
@@ -109,7 +130,7 @@ export function ThemePicker() {
             <span className="en">{t.en}</span>
           </button>
         ))}
-        <button className={'theme-card' + (themeId === SYSTEM_THEME_ID ? ' sel' : '')} onClick={() => setTheme(SYSTEM_THEME_ID)}>
+        <button className={'theme-card' + (!activeSkinId && themeId === SYSTEM_THEME_ID ? ' sel' : '')} onClick={() => pickTheme(SYSTEM_THEME_ID)}>
           <span className="swatches">
             <i style={{ background: '#F7F6F3' }} />
             <i style={{ background: '#151412' }} />
@@ -119,13 +140,47 @@ export function ThemePicker() {
         </button>
       </div>
 
-      {/* 皮肤区：导入 / 导出 / 示例 / 已存皮肤 */}
-      <div className="skin-area" style={{ marginTop: 14 }}>
+      {/* 自定义皮肤区：卡片同款视觉，与主题互斥 */}
+      <div className="skin-area">
+        <div className="skin-head">
+          <span className="skin-title">自定义皮肤</span>
+          <span className="muted" style={{ fontSize: 11 }}>导入 / 添加示例 / 导出，选中即应用</span>
+        </div>
+        {skinList.length > 0 ? (
+          <div className="theme-grid">
+            {skinList.map((s) => (
+              <button key={s.id} className={'theme-card skin-card' + (activeSkinId === s.id ? ' sel' : '')} onClick={() => pickSkin(s.id)} title="点击应用">
+                <span className="swatches skin-swatches">
+                  {s.tokens ? (
+                    <>
+                      <i style={{ background: s.tokens.canvas || '#888' }} />
+                      <i style={{ background: s.tokens.surface || '#888' }} />
+                      <i style={{ background: s.tokens.blue || '#888' }} />
+                    </>
+                  ) : (
+                    <i style={{ background: 'linear-gradient(135deg,#666,#aaa)' }} />
+                  )}
+                </span>
+                <span className="tn">{s.name}</span>
+                <span className="en">
+                  {s.tokens ? `tokens ${Object.keys(s.tokens).length}` : ''}
+                  {s.css ? ' · css' : ''}
+                  {s.bg ? ' · 背景' : ''}
+                </span>
+                <span className="skin-card-ops" onClick={(e) => e.stopPropagation()}>
+                  <button className="btn mini ghost" onClick={() => removeSkin(s.id)} title="删除皮肤">删除</button>
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="muted" style={{ fontSize: 12, padding: '6px 0' }}>还没有自定义皮肤 —— 从示例开始，或导入你的皮肤包。</div>
+        )}
         <div className="skin-actions">
-          <button className="btn mini" onClick={exportTheme}>导出当前主题</button>
+          <button className="btn mini ghost" onClick={() => applyDemo(WHALE_SKIN)}>+ 示例 · 鲸</button>
+          <button className="btn mini ghost" onClick={() => applyDemo(PAPER_SKIN)}>+ 示例 · 宣纸变装</button>
           <button className="btn mini" onClick={() => fileRef.current?.click()}>导入皮肤（json/zip）</button>
-          <button className="btn mini ghost" onClick={() => applyDemo(WHALE_SKIN)}>示例 · 鲸</button>
-          <button className="btn mini ghost" onClick={() => applyDemo(PAPER_SKIN)}>示例 · 宣纸变装</button>
+          <button className="btn mini" onClick={exportTheme}>导出当前外观</button>
           <input
             ref={fileRef}
             type="file"
@@ -139,27 +194,6 @@ export function ThemePicker() {
           />
           {msg ? <span className="muted" style={{ marginLeft: 10, fontSize: 12 }}>{msg}</span> : null}
         </div>
-        {Object.keys(skins).length > 0 ? (
-          <div className="skin-list" style={{ marginTop: 8 }}>
-            {Object.values(skins).map((s) => (
-              <div key={s.id} className={'skin-row' + (activeSkinId === s.id ? ' sel' : '')}>
-                <span className="skin-name">{s.name}</span>
-                <span className="muted" style={{ fontSize: 11 }}>
-                  {s.tokens ? `tokens ${Object.keys(s.tokens).length}` : ''}
-                  {s.css ? ' + css' : ''}
-                  {s.bg ? ' + bg' : ''}
-                </span>
-                <div className="skin-ops">
-                  <button className="btn mini" onClick={() => { activateSkin(s.id); refresh(); }}>应用</button>
-                  {activeSkinId === s.id ? (
-                    <button className="btn mini ghost" onClick={() => { activateSkin(null); refresh(); }}>还原内置</button>
-                  ) : null}
-                  <button className="btn mini ghost" onClick={() => removeSkin(s.id)}>删除</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
       </div>
 
       <div style={{ marginTop: 14 }}>
