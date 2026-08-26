@@ -981,7 +981,7 @@ function rowToPolicy(r: Record<string, unknown>): PolicyRow {
 }
 
 /** 策略建议（P1 O6）：同类批复历史沉淀——精确匹配卡类型，fallback global；count>=2 才建议。
- *  只建议不自动应用（防静默降级，Claude #41763 反面）。 */
+ *  批准/拒绝都建议（拒绝幂等的体现：同类危险命令历史全拒 → 建议拒绝）；只建议不自动应用（防静默降级）。 */
 export function policySuggestion(
   storage: Storage,
   projectId: string,
@@ -991,9 +991,11 @@ export function policySuggestion(
   const scopes = [cardKind || 'task', 'global']
   let best: { scope: string; outcome: 'approved' | 'rejected'; count: number } | null = null
   for (const scope of scopes) {
-    const p = storage.getPolicy(projectId, kind, scope, 'approved')
-    if (p && p.count >= 2 && (!best || p.count > best.count)) {
-      best = { scope: p.scope, outcome: p.outcome, count: p.count }
+    for (const outcome of ['approved', 'rejected'] as const) {
+      const p = storage.getPolicy(projectId, kind, scope, outcome)
+      if (p && p.count >= 2 && (!best || p.count > best.count)) {
+        best = { scope: p.scope, outcome: p.outcome, count: p.count }
+      }
     }
   }
   return best

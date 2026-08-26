@@ -14,11 +14,11 @@ const DANGER_PATTERNS = [
   // 最危险优先：rm -rf 根目录/家目录/当前目录（必须最先匹配，避免被通用 rm 规则吞掉）
   { re: /(^|\s)rm\s+-[a-zA-Z]*rf[a-zA-Z]*\s+(\/|~)(\s|$)/, risk: 'rm-root', label: 'rm -rf 根目录/家目录' },
   { re: /(^|\s)rm\s+-[a-zA-Z]*rf[a-zA-Z]*\s+(\.|\.\/)\s*$/, risk: 'rm-root', label: 'rm -rf 当前目录' },
+  // sudo 提权（优先于被包装的危险命令本身——sudo rm 报"提权"更准确）
+  { re: /(^|\s)sudo\s+/, risk: 'sudo', label: 'sudo 提权命令' },
   // 破坏性文件删除：rm -r/-rf 组合（仅删单文件的 rm -f 不危险）
   { re: /(^|\s)rm\s+-[a-zA-Z]*rf[a-zA-Z]*\s+/, risk: 'rm', label: 'rm 递归/强制删除' },
   { re: /(^|\s)rm\s+-[a-zA-Z]*r[a-zA-Z]*\s+/, risk: 'rm', label: 'rm 递归删除' },
-  // sudo（越权）
-  { re: /(^|\s)sudo\s+/, risk: 'sudo', label: 'sudo 提权命令' },
   // git 危险操作
   { re: /(^|\s)git\s+push(\s|$)/, risk: 'git-push', label: 'git push（推送远端）' },
   { re: /(^|\s)git\s+reset\s+--hard\s+/, risk: 'git-reset-hard', label: 'git reset --hard（丢弃改动）' },

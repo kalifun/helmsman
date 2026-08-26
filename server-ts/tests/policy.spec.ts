@@ -66,11 +66,14 @@ describe('策略建议（policySuggestion）', () => {
     expect(sug?.scope).toBe('global')
   })
 
-  it('rejected 历史不产生"自动批准"建议', () => {
+  it('rejected 历史建议拒绝（拒绝幂等，不误当批准）', () => {
     s.upsertProject('p1', '项目', '/tmp/x', '{}')
     s.learnPolicy('p1', 'checkpoint', 'task', 'rejected')
     s.learnPolicy('p1', 'checkpoint', 'task', 'rejected')
-    expect(policySuggestion(s, 'p1', 'checkpoint', 'task')).toBeNull()
+    const sug = policySuggestion(s, 'p1', 'checkpoint', 'task')
+    expect(sug).not.toBeNull()
+    expect(sug?.outcome).toBe('rejected')
+    expect(sug?.count).toBe(2)
   })
 
   it('不同 kind 互不干扰', () => {
