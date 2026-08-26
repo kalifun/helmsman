@@ -1912,3 +1912,9 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .repo-hash { font-family: var(--mono); color: var(--blue); flex-shrink: 0; }
 .repo-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); }
 .repo-when { font-family: var(--mono); color: var(--text3); flex-shrink: 0; }
+
+/* --- 度量明细表（MetricsView P2：执行级明细）--- */
+.m-table { display: flex; flex-direction: column; gap: 8px; }
+.m-table .rtable-str.strong { color: var(--green); }
+.m-table .rtable-str.toxic { color: var(--red); }
+.m-table .rtable-name { font-weight: 500; color: var(--text); }
