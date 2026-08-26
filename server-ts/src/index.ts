@@ -1604,7 +1604,9 @@ async function main(): Promise<void> {
         const t = pid ? proj.projects[pid]?.cards[cardId]?.executions[sid] : undefined
         if (!t || !pid) throw new HttpError(404, 'task not found')
         t.waiting = { kind, reason, payload: typeof body.payload === 'object' && body.payload !== null ? body.payload as Record<string, unknown> : {} }
-        t.status = 'Running' // Waiting 是派生状态，底层仍挂起（前端 effectiveStatus 映射为 Waiting）
+        // Waiting 是派生状态（前端 effectiveStatus = waiting ? 'Waiting' : status），
+        // 不改底层 status：若任务已是终态（Done 等）保持原状，批复后 waiting 清除即自然回到终态，
+        // 不会被永远钉在 Running。正在 Running 的任务本来就无需改。
         const aid = storage.insertApproval({
           id: 0,
           project_id: pid,
@@ -1925,6 +1927,18 @@ async function main(): Promise<void> {
             : `[批复] 需调整方向：${comment || '请调整后继续'}`
           void runGoalLoop(appr.project_id, cardId, sid, goalSteer)
           send(200, { ok: true, outcome, id })
+          return
+        }
+        // 任务在 DB 已是终态（如对已完成任务的测试 Waiting，或历史遗留）：
+        // 会话已死，回发 prompt 也不会再跑 → 直接收敛终态（waiting 已在上面清除，status 归位），
+        // 避免被钉在 Running。活会话（DB Running）才走"发批复消息让 agent 继续"。
+        const dbEx = storage.getExecutionBySession(sid)
+        const terminal = dbEx && (dbEx.status === 'Done' || dbEx.status === 'Failed' || dbEx.status === 'Cancelled')
+        if (terminal && t) {
+          t.status = dbEx.status as 'Pending' | 'Running' | 'Done' | 'Failed' | 'Cancelled'
+          if (dbEx.status === 'Done' && t.finished_at == null) t.finished_at = nowMs()
+          console.warn(`[approval] ${sid} 已是终态(${dbEx.status})，批复后直接收敛（不打扰死会话）`)
+          send(200, { ok: true, outcome, id, terminal: true })
           return
         }
         const steer = outcome === 'approved'

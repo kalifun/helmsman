@@ -5,17 +5,14 @@ import { useEffect, useState } from 'react';
 import { useUi } from '../store/ui';
 import { listApprovals, decideApproval, listPolicies, deletePolicy, listSuspendedApprovals, resumeApproval, resumeAllApprovals, type ApprovalItem, type PolicyRow } from '../api/client';
 import { ApprovalCard, KIND_LABEL } from '../components/ApprovalCard';
-import { LoadingState } from '../components/LoadingState';
 
 export function ApprovalsView({ pid }: { pid: string }) {
   const [items, setItems] = useState<ApprovalItem[]>([]);
-  const [loading, setLoading] = useState(false);
   const [policies, setPolicies] = useState<PolicyRow[]>([]);
   const [showPolicies, setShowPolicies] = useState(false);
   const [suspended, setSuspended] = useState<ApprovalItem[]>([]);
 
   const load = async () => {
-    setLoading(true);
     try {
       setItems(await listApprovals(pid));
       setPolicies(await listPolicies(pid));
@@ -24,8 +21,6 @@ export function ApprovalsView({ pid }: { pid: string }) {
       setItems([]);
       setPolicies([]);
       setSuspended([]);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -45,11 +40,16 @@ export function ApprovalsView({ pid }: { pid: string }) {
     }
   };
 
+  const isEmpty = items.length === 0 && suspended.length === 0;
+
+  // 空态：没有待批事项时整个视图空白——点进来就知道当前没有要批复的，不渲染任何标题/提示。
+  if (isEmpty) return <div id="apprview" />;
+
   return (
     <div id="apprview">
       <div className="panel">
         <h2>
-          批复队列 <span className="muted">Waiting · 一等表面（§4）</span>
+          批复队列 <span className="muted">等待你确认的事项</span>
           <button className="policy-toggle" onClick={() => setShowPolicies((v) => !v)}>
             🧠 策略规则 {policies.length ? `(${policies.length})` : ''}
           </button>
@@ -84,10 +84,6 @@ export function ApprovalsView({ pid }: { pid: string }) {
             ))}
           </div>
         ) : null}
-        {loading && items.length === 0 && <LoadingState variant="orbit" label="加载批复…" />}
-        {!loading && items.length === 0 && (
-          <p className="muted">现在没有要批的事项。任务停下等人时会出现在这里。</p>
-        )}
         {items.map((a) => (
           <ApprovalCard
             key={a.id}
