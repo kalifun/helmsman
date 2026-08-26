@@ -88,23 +88,35 @@ export function MetricsView({ pid }: { pid: string }) {
   const m = useMemo(() => {
     if (!rows) return null;
     const seq = [...rows].sort((a, b) => a.created_at - b.created_at); // 时间正序
+    // 分组归一化：实验的 group_tag 形如 'A:实验名'/'B:实验名'（每次实验名都不同）——
+    // 折线图按 tag 细分会 12 组线重叠，归并为 全部 / A 组 / B 组 三组（序列曲线语义）
+    const groupOf = (r: MetricRow): string => {
+      const g = r.group_tag || ''
+      if (g.startsWith('A')) return 'A 组'
+      if (g.startsWith('B')) return 'B 组'
+      return '全部'
+    }
     const groups = new Map<string, MetricRow[]>();
     seq.forEach((r) => {
-      const g = r.group_tag || '全部';
+      const g = groupOf(r)
       groups.set(g, [...(groups.get(g) || []), r]);
     });
+    // x 轴 = 全局执行时序（所有组共享同一时间轴，线按真实执行序对齐；组内索引会导致多组错位重叠）
+    // metrics 行无稳定 id（表无 id 列）——用对象引用作 Map 键（groups 分的正是 seq 里的同一对象）
+    const timeIndex = new Map<MetricRow, number>()
+    seq.forEach((r, i) => timeIndex.set(r, i))
     const series = (pick: (r: MetricRow) => number | null) =>
       [...groups.entries()].map(([name, rs], gi) => ({
         name,
         color: gi === 0 ? 'var(--blue)' : gi === 1 ? 'var(--green)' : 'var(--yellow)',
-        pts: rs.map((r, i) => ({ x: i, y: pick(r) })),
+        pts: rs.map((r) => ({ x: timeIndex.get(r) ?? 0, y: pick(r) })),
       }));
-    // 累计成本（组内累计）
+    // 累计成本（组内累计，x 仍用全局时序对齐）
     const cum = (rs: MetricRow[]) => { let acc = 0; return rs.map((r) => { acc += r.cost; return acc; }); };
     const cumSeries = [...groups.entries()].map(([name, rs], gi) => ({
       name,
       color: gi === 0 ? 'var(--blue)' : gi === 1 ? 'var(--green)' : 'var(--yellow)',
-      pts: cum(rs).map((v, i) => ({ x: i, y: v })),
+      pts: cum(rs).map((v, i) => ({ x: timeIndex.get(rs[i]) ?? 0, y: v })),
     }));
     const verified = seq.filter((r) => r.verified === true).length;
     const verifiedTotal = seq.filter((r) => r.verified === true || r.verified === false).length;
