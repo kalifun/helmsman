@@ -92,7 +92,7 @@ export function compareReport(
   nameB = 'B 裸跑',
 ): {
   groups: [GroupCompare, GroupCompare]
-  delta: { successRate: number; verifyRate: number; avgTurns: number; avgCost: number }
+  delta: { successRate: number; verifyRate: number; avgTurns: number; avgCost: number; briefHitRate: number; avgSteps: number }
   verdict: string
 } {
   const a = compareGroup(aRows, 'A', nameA)
@@ -102,6 +102,8 @@ export function compareReport(
     verifyRate: Math.round((a.verifyRate - b.verifyRate) * 1000) / 1000,
     avgTurns: Math.round((a.avgTurns - b.avgTurns) * 100) / 100,
     avgCost: Math.round((a.avgCost - b.avgCost) * 10000) / 10000,
+    briefHitRate: Math.round((a.briefHitRate - b.briefHitRate) * 1000) / 1000,
+    avgSteps: Math.round((a.avgSteps - b.avgSteps) * 100) / 100,
   }
   let verdict: string
   const hasVerify = a.verifiedTasks > 0 || b.verifiedTasks > 0

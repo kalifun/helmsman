@@ -13,6 +13,7 @@ interface GroupCompare {
   avgTurns: number;
   avgSteps: number;
   avgCost: number;
+  avgCacheCost: number;
   briefHitRate: number;
   avgBriefEntries: number;
   verifyRate: number;
@@ -21,7 +22,7 @@ interface GroupCompare {
 
 interface CompareReport {
   groups: [GroupCompare, GroupCompare];
-  delta: { successRate: number; verifyRate: number; avgTurns: number; avgCost: number };
+  delta: { successRate: number; verifyRate: number; avgTurns: number; avgCost: number; briefHitRate: number; avgSteps: number };
   verdict: string;
 }
 
@@ -114,6 +115,7 @@ export function ExperimentView({ pid }: { pid: string }) {
                   <th>平均回合</th>
                   <th>平均步骤</th>
                   <th>平均成本 ¥</th>
+                  <th>缓存成本</th>
                   <th>简报命中</th>
                 </tr>
               </thead>
@@ -129,6 +131,7 @@ export function ExperimentView({ pid }: { pid: string }) {
                     <td>{g.avgTurns}</td>
                     <td>{g.avgSteps}</td>
                     <td>{g.avgCost.toFixed(4)}</td>
+                    <td title="缓存命中杠杆（装配稳定前缀 → KV 缓存读）">{g.avgCacheCost.toFixed(4)}</td>
                     <td>{pct(g.briefHitRate)}</td>
                   </tr>
                 ))}
@@ -137,7 +140,9 @@ export function ExperimentView({ pid }: { pid: string }) {
             <div className="exp-delta">
               <div>Δ 结束率：<strong>{report.delta.successRate > 0 ? '+' : ''}{pct(report.delta.successRate)}</strong></div>
               <div>Δ 验收通过率：<strong>{report.delta.verifyRate > 0 ? '+' : ''}{pct(report.delta.verifyRate)}</strong></div>
+              <div>Δ 简报命中：<strong>{report.delta.briefHitRate > 0 ? '+' : ''}{pct(report.delta.briefHitRate)}</strong></div>
               <div>Δ 回合：<strong>{report.delta.avgTurns > 0 ? '+' : ''}{report.delta.avgTurns}</strong></div>
+              <div>Δ 步骤：<strong>{report.delta.avgSteps > 0 ? '+' : ''}{report.delta.avgSteps}</strong></div>
               <div>Δ 成本：<strong>{report.delta.avgCost > 0 ? '+' : ''}{report.delta.avgCost.toFixed(4)}</strong></div>
             </div>
             <p className="verdict">📋 {report.verdict}</p>
