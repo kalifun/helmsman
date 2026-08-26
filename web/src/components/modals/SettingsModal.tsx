@@ -32,6 +32,60 @@ function SettingRow({ label, desc, children }: { label: string; desc?: string; c
   );
 }
 
+/** 项目设置页签（热更新）：检索阈值 / 装配条数 —— 真实写入 storage，下次装配生效（无需重启引擎）。 */
+function ProjectSettingsTab({ pid }: { pid: string }) {
+  const toast = useUi((s) => s.toast);
+  const [threshold, setThreshold] = useState<number>(0.15);
+  const [entries, setEntries] = useState<number>(5);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = () => {
+    setLoaded(false);
+    fetch(`/api/projects/${encodeURIComponent(pid)}/settings`)
+      .then((r) => r.json())
+      .then((d: { retrieval_threshold: number; brief_entries: number }) => {
+        setThreshold(d.retrieval_threshold);
+        setEntries(d.brief_entries);
+        setLoaded(true);
+      })
+      .catch(() => { setLoaded(true); toast('设置读取失败'); });
+  };
+  useEffect(load, [pid]);
+
+  const save = async () => {
+    const r = await fetch(`/api/projects/${encodeURIComponent(pid)}/settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ retrieval_threshold: threshold, brief_entries: entries }),
+    });
+    toast(r.ok ? '已保存 · 下次任务装配生效（热更新，无需重启）' : `保存失败（${r.status}）`);
+  };
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <SettingRow label="检索阈值" desc={`知识检索命中门槛（${threshold.toFixed(2)}）—— 越高越严格`}>
+        <input
+          type="range" min={0.05} max={0.9} step={0.05} value={threshold}
+          onChange={(e) => setThreshold(Number(e.target.value))}
+          style={{ width: 140 }}
+        />
+        <span className="set-badge">{threshold.toFixed(2)}</span>
+      </SettingRow>
+      <SettingRow label="装配条数" desc={`简报最多装配知识条数（${entries}）—— 越多上下文越全也越贵`}>
+        <input
+          type="range" min={1} max={10} step={1} value={entries}
+          onChange={(e) => setEntries(Number(e.target.value))}
+          style={{ width: 140 }}
+        />
+        <span className="set-badge">{entries}</span>
+      </SettingRow>
+      <div style={{ marginTop: 10 }}>
+        <Button variant="primary" mini disabled={!loaded} onClick={() => void save()}>保存</Button>
+      </div>
+    </div>
+  );
+}
+
 /** 预设管理页签：Profile 列表 + 三轴 + 设默认 + 自定义（§2.6 项目级管理）。 */
 function PresetTab({ pid }: { pid: string | null }) {
   const toast = useUi((s) => s.toast);
@@ -130,7 +184,17 @@ export function SettingsModal() {
   const [tab, setTab] = useState<TabId>('general');
 
   const body = (() => {
-    if (tab === 'general') return <ThemePicker />;
+    if (tab === 'general') return (
+      <>
+        <ThemePicker />
+        {pid ? (
+          <div className="set-row" style={{ marginTop: 14, display: 'block' }}>
+            <div className="lbl">项目设置<div className="desc">检索与装配（热更新 · 项目级）</div></div>
+            <ProjectSettingsTab pid={pid} />
+          </div>
+        ) : null}
+      </>
+    );
     if (tab === 'presets') return <PresetTab pid={pid} />;
     if (tab === 'model') return (
       <>

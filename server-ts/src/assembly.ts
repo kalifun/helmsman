@@ -28,6 +28,8 @@ export async function assembleBrief(
     taskDescription: string
     notes: KbNote[]
     maxKbEntries?: number
+    /** 检索阈值（项目设置可覆盖；默认 0.15） */
+    threshold?: number
     demote?: Record<string, number>
   },
   embedOpts: {
@@ -39,7 +41,7 @@ export async function assembleBrief(
   const queries = deriveQueries(taskText)
   const hits = await retrieveHybrid(input.notes, queries, taskText, {
     limit: input.maxKbEntries ?? 5,
-    threshold: 0.15,
+    threshold: input.threshold ?? 0.15,
     demote: input.demote,
     embedNotes: embedOpts.embedNotes,
     embedQuery: embedOpts.embedQuery,

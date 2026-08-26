@@ -583,6 +583,9 @@ async function main(): Promise<void> {
         taskDescription: c.description,
         notes,
         demote,
+        // 项目设置热更新：检索阈值 / 装配条数（storage 读，无需重启引擎）
+        threshold: Number(storage.getConfig(projectId, 'retrieval_threshold') ?? '0.15'),
+        maxKbEntries: Number(storage.getConfig(projectId, 'brief_entries') ?? '5'),
       })
     }
     const prompt = opts.brief === false
@@ -1157,6 +1160,32 @@ async function main(): Promise<void> {
         if (!p) throw new HttpError(404, `project '${pid}' not found`)
         const root = listFileTree(p.path)
         send(200, root)
+        return
+      }
+      const settingsMatch = path.match(/^\/api\/projects\/([^/]+)\/settings$/)
+      if (settingsMatch && method === 'GET') {
+        const pid = decodeURIComponent(settingsMatch[1])
+        if (!proj.projects[pid]) throw new HttpError(404, `project '${pid}' not found`)
+        send(200, {
+          retrieval_threshold: Number(storage.getConfig(pid, 'retrieval_threshold') ?? '0.15'),
+          brief_entries: Number(storage.getConfig(pid, 'brief_entries') ?? '5'),
+        })
+        return
+      }
+      if (settingsMatch && method === 'PUT') {
+        const pid = decodeURIComponent(settingsMatch[1])
+        if (!proj.projects[pid]) throw new HttpError(404, `project '${pid}' not found`)
+        const body = (await readBody()) as { retrieval_threshold?: unknown; brief_entries?: unknown }
+        const threshold = typeof body.retrieval_threshold === 'number' ? body.retrieval_threshold : null
+        const entries = typeof body.brief_entries === 'number' ? body.brief_entries : null
+        if (threshold != null && (threshold < 0.05 || threshold > 0.9)) throw new HttpError(400, 'retrieval_threshold must be 0.05-0.9')
+        if (entries != null && (entries < 1 || entries > 10)) throw new HttpError(400, 'brief_entries must be 1-10')
+        if (threshold != null) storage.setConfig(pid, 'retrieval_threshold', String(threshold))
+        if (entries != null) storage.setConfig(pid, 'brief_entries', String(entries))
+        send(200, {
+          retrieval_threshold: Number(storage.getConfig(pid, 'retrieval_threshold') ?? '0.15'),
+          brief_entries: Number(storage.getConfig(pid, 'brief_entries') ?? '5'),
+        })
         return
       }
       const repoStatusMatch = path.match(/^\/api\/projects\/([^/]+)\/repo-status$/)
