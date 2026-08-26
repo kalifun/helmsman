@@ -87,6 +87,7 @@ function Line({
 
 export function MetricsView({ pid }: { pid: string }) {
   const [rows, setRows] = useState<MetricRow[] | null>(null);
+  const [page, setPage] = useState(0);
   const [err, setErr] = useState('');
   const cards = useProjection((s) => s.cards[pid] || {});
   const chats = useProjection((s) => s.chats[pid] || {});
@@ -257,22 +258,27 @@ export function MetricsView({ pid }: { pid: string }) {
         <Line series={m.cacheSeries} fixedMax={1} fmt={(v) => `${Math.round(v * 100)}%`} label="缓存命中率" />
       </div>
       <div className="m-table">
-        <div className="m-line-label">执行明细（{m.total} 次）</div>
+        <div className="m-line-label">执行明细（{m.total} 次 · 每页 20）</div>
         <RecordsTable
           columns={[
             { key: 'task', label: '任务', width: '34%', sort: (a, b) => titleOf(a.task_id).localeCompare(titleOf(b.task_id), 'zh'), cell: (r) => <span className="rtable-name" title={r.task_id}>{titleOf(r.task_id)}</span> },
             { key: 'when', label: '时间', width: '12%', sort: (a, b) => a.created_at - b.created_at, cell: (r) => <span className="rtable-src">{relTime(r.created_at)}</span> },
             { key: 'turns', label: '轮次', width: '8%', sort: (a, b) => a.turns - b.turns, cell: (r) => <span className="rtable-src">{r.turns}</span> },
-            { key: 'cost', label: '成本', width: '12%', sort: (a, b) => a.cost - b.cost, cell: (r) => <span className="rtable-src">¥{yuan(r.cost)}</span> },
+            { key: 'cost', label: '成本', width: '12%', sort: (a, b) => a.cost - b.cost, cell: (r) => <span className="rtable-src">{yuan(r.cost)}</span> },
             { key: 'hit', label: '缓存', width: '10%', sort: (a, b) => a.cache_hit - b.cache_hit, cell: (r) => <span className="rtable-src">{Math.round(r.cache_hit * 100)}%</span> },
             { key: 'brief', label: '装配', width: '8%', cell: (r) => <span className="rtable-src">{r.brief_snapshot?.length ?? 0}</span> },
             { key: 'verify', label: '验收', width: '8%', cell: (r) => r.verified == null ? <span className="rtable-src">—</span> : r.verified ? <span className="rtable-str strong">✓</span> : <span className="rtable-str toxic">✗</span> },
             { key: 'outcome', label: '结果', width: '8%', cell: (r) => <span className={'rtable-str ' + (r.outcome === 'Done' ? 'strong' : 'toxic')}>{r.outcome}</span> },
           ]}
-          rows={m.seq.slice().reverse()}
+          rows={m.seq.slice().reverse().slice(page * 20, (page + 1) * 20)}
           rowKey={(r) => String(r.id)}
           empty={<div className="ph-empty">暂无执行度量</div>}
         />
+        <div className="m-page">
+          <button type="button" className="btn mini" disabled={page <= 0} onClick={() => setPage((v) => v - 1)}>上一页</button>
+          <span className="m-page-info">{page + 1} / {Math.max(1, Math.ceil(m.seq.length / 20))} 页</span>
+          <button type="button" className="btn mini" disabled={(page + 1) * 20 >= m.seq.length} onClick={() => setPage((v) => v + 1)}>下一页</button>
+        </div>
       </div>
     </div>
   );
