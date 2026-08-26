@@ -276,6 +276,13 @@ export class Storage {
   }
 
   purgeProject(id: string): void {
+    // 显式级联：approvals/metrics/policies/kb_notes 的 project_id 无外键（表结构历史），
+    // 不删会留孤儿行（技术债 O6-6：purge 项目不级联删）。
+    for (const table of ['approvals', 'metrics', 'policies', 'kb_notes', 'profiles', 'chat_sessions', 'cards']) {
+      this.db.prepare(`DELETE FROM ${table} WHERE project_id = ?`).run(id)
+    }
+    // cards 删除级联 executions（有外键），兜底显式删
+    this.db.prepare('DELETE FROM executions WHERE card_id IN (SELECT id FROM cards WHERE project_id = ?)').run(id)
     this.db.prepare('DELETE FROM projects WHERE id = ?').run(id)
   }
 

@@ -48,10 +48,14 @@ export function repoRootFromCwd(cwd: string): string {
 
 /** 项目是 git 仓库且有 HEAD 时，为这次执行开隔离工作区；否则返回 null（沿用项目目录）。 */
 export function prepareTaskWorktree(repo: string, cardId: string, key: string): TaskWorktree | null {
-  if (!isGitRepo(repo)) return null
+  if (!isGitRepo(repo)) {
+    console.warn(`[worktree] 非 git 仓库，隔离区不可用（${repo}）—— 回退共享项目目录`)
+    return null
+  }
   try {
     runGit(repo, ['rev-parse', '--verify', 'HEAD'])
   } catch {
+    console.warn(`[worktree] 仓库无 HEAD（${repo}）—— 回退共享项目目录`)
     return null
   }
   ensureLocalExclude(repo)
@@ -61,6 +65,8 @@ export function prepareTaskWorktree(repo: string, cardId: string, key: string): 
   try {
     runGit(repo, ['worktree', 'add', '-b', branch, path], { timeout: 30000 })
   } catch (e) {
+    const msg = e instanceof Error ? e.message.split('\n')[0] : String(e)
+    console.warn(`[worktree] 隔离区创建失败（${repo}，${msg}）—— 回退共享项目目录`)
     return nullIfExists(e, path, branch)
   }
   return { path, branch }
@@ -108,6 +114,45 @@ export function mergeTaskWorktree(input: {
   }
   discardTaskWorktree(repo, worktree)
   return { ok: true, committed, merged: true }
+}
+
+/**
+ * 启动清理：删除隔离区（.helmsman/worktrees/）下所有残留 worktree —— 崩溃/中断执行泄漏
+ * （正常任务完成时已 merge/discard；此处只清残留）。返回清理数量。
+ */
+export function cleanupLeakedWorktrees(repo: string): number {
+  if (!isGitRepo(repo)) return 0
+  let cleaned = 0
+  try {
+    const out = execFileSync('git', ['worktree', 'list', '--porcelain'], {
+      cwd: repo, encoding: 'utf8', timeout: 10000,
+    })
+    // porcelain 块：worktree <path> / HEAD <hash> / branch refs/heads/<name> / 空行
+    let curPath = ''
+    let curBranch = ''
+    const flush = (): void => {
+      if (curPath && curPath.includes('/.helmsman/worktrees/') && curBranch) {
+        try {
+          discardTaskWorktree(repo, { path: curPath, branch: curBranch })
+          cleaned++
+        } catch { /* 清理失败不阻塞启动 */ }
+      }
+      curPath = ''
+      curBranch = ''
+    }
+    for (const line of out.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        flush()
+        curPath = line.slice('worktree '.length).trim()
+      } else if (line.startsWith('branch refs/heads/')) {
+        curBranch = line.slice('branch refs/heads/'.length).trim()
+      } else if (line.trim() === '') {
+        flush()
+      }
+    }
+    flush()
+  } catch { return 0 }
+  return cleaned
 }
 
 export function discardTaskWorktree(repo: string, worktree: TaskWorktree): void {

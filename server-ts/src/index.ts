@@ -45,7 +45,7 @@ import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
 import type { VerifyResult } from './verify.ts'
 import { buildAcceptanceEvidence, acceptanceReason } from './evidence.ts'
-import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree, executionCwd, isTaskWorktreePath } from './worktree.ts'
+import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree, cleanupLeakedWorktrees, executionCwd, isTaskWorktreePath } from './worktree.ts'
 import { priceOf, estCostFrom } from './pricing.ts'
 
 const PORT = Number(process.env.HELMSMAN_PORT ?? 3081)
@@ -166,6 +166,12 @@ async function main(): Promise<void> {
   // 隔离区 cwd 曾被当成独立项目；启动时清掉，避免侧栏出现 card-… 假项目。
   for (const m of storage.loadProjects()) {
     if (isTaskWorktreePath(m.path)) storage.purgeProject(m.id)
+  }
+
+  // 启动：清理崩溃/中断泄漏的隔离区 worktree（正常任务完成时已 merge/discard）
+  for (const m of storage.loadProjects()) {
+    const cleaned = cleanupLeakedWorktrees(m.path)
+    if (cleaned > 0) console.log(`[worktree] 启动清理泄漏隔离区 ${cleaned} 个（项目 ${m.id}）`)
   }
 
   // 启动：灌持久化项目元数据
