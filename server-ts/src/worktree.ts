@@ -168,7 +168,7 @@ export function discardTaskWorktree(repo: string, worktree: TaskWorktree): void 
   } catch { /* 分支可能已删 */ }
 }
 
-function isGitRepo(cwd: string): boolean {
+export function isGitRepo(cwd: string): boolean {
   try {
     runGit(cwd, ['rev-parse', '--is-inside-work-tree'])
     return true

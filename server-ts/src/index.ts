@@ -45,7 +45,7 @@ import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
 import type { VerifyResult } from './verify.ts'
 import { buildAcceptanceEvidence, acceptanceReason } from './evidence.ts'
-import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree, cleanupLeakedWorktrees, executionCwd, isTaskWorktreePath } from './worktree.ts'
+import { prepareTaskWorktree, mergeTaskWorktree, discardTaskWorktree, cleanupLeakedWorktrees, executionCwd, isTaskWorktreePath, isGitRepo } from './worktree.ts'
 import { priceOf, estCostFrom } from './pricing.ts'
 
 const PORT = Number(process.env.HELMSMAN_PORT ?? 3081)
@@ -519,6 +519,40 @@ async function main(): Promise<void> {
 
   // 执行启动共路：session_new → 注册到卡 → 快照 Pending → 后台跑
   // brief=true 装配知识库简报；false = 裸跑（对照实验 B 组）；presetId 按 dsh preset 组装；presetSnapshot 落快照
+  /** 任务终态统一入口：更新投影 + 释放并发占位（终态后新任务可启动） */
+  function finishSessionAndRelease(prj: typeof proj, sid: string, stopReason: string, at: number): void {
+    finishSession(prj, sid, stopReason, at)
+    const pid = prj.sessionProject[sid]
+    if (pid) decSlot(pid)
+  }
+
+  /** 并发占用位（防竞态：countRunning 是投影现算，任务标 Running 前有窗口，
+   *  占位覆盖"检查 → 执行 → 终态"全周期，保证互斥原子性）。 */
+  const inFlight = new Map<string, number>()
+  const incSlot = (pid: string): void => { inFlight.set(pid, (inFlight.get(pid) ?? 0) + 1) }
+  const decSlot = (pid: string): void => {
+    const n = (inFlight.get(pid) ?? 1) - 1
+    if (n <= 0) inFlight.delete(pid)
+    else inFlight.set(pid, n)
+  }
+  /** 有效并发 = 投影 Running + 占用位（任务标 Running 前的窗口由占用位覆盖） */
+  function effectiveRunning(projectId: string): number {
+    return countRunning(projectId) + (inFlight.get(projectId) ?? 0)
+  }
+
+  /** 项目当前 Running/Waiting 执行数（投影现算，并发互斥用） */
+  function countRunning(projectId: string): number {
+    const p = proj.projects[projectId]
+    if (!p) return 0
+    let n = 0
+    for (const c of Object.values(p.cards)) {
+      for (const t of Object.values(c.executions)) {
+        if (t.status === 'Running' || t.waiting) n++
+      }
+    }
+    return n
+  }
+
   async function startExecution(
     projectId: string,
     cardId: string,
@@ -534,12 +568,25 @@ async function main(): Promise<void> {
       const names = unmet.map((d) => p.cards[d]?.title ?? d).join('、')
       throw new HttpError(409, `依赖未完成（等上游）：${names}`)
     }
+    // 并发互斥（P2 写冲突防护，比冲突检测更根治）：非 git 共享目录同时 1 任务
+    // （避免并行 agent 改同文件互相覆盖）；git 项目有 worktree 隔离，限 2（兑现并发上限）。
+    // 等待位 = 轮询（异步让出，不阻塞事件循环）；任务终态自然释放。
+    const limit = isGitRepo(p.path) ? 2 : 1
+    const startedAt = Date.now()
+    while (effectiveRunning(projectId) >= limit) {
+      if (Date.now() - startedAt > 30 * 60 * 1000) {
+        throw new HttpError(409, `并发位等待超时（${limit} 个并发上限），任务未启动`)
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+    incSlot(projectId) // 占位：检查通过立即占用（防竞态窗口）
     const wtKey = `${cardId}-${Date.now().toString(36)}-${WT_SEQ++}`
     const wt = prepareTaskWorktree(p.path, cardId, wtKey)
     let sid: string
     try {
       sid = await acp.sessionNew(wt?.path ?? p.path, opts.presetId ?? undefined)
     } catch (e) {
+      decSlot(projectId)
       if (wt) discardTaskWorktree(p.path, wt)
       throw e
     }
@@ -629,7 +676,7 @@ async function main(): Promise<void> {
       .then(async (stopReason) => {
         await waitTailer() // G6：ACP resolve 与 JSONL 落盘竞态——等 tailer fold 完最后的 text-chunks 再检测
         const at = nowMs()
-        finishSession(proj, sid, stopReason, at)
+        finishSessionAndRelease(proj, sid, stopReason, at)
         const t = proj.projects[proj.sessionProject[sid]]?.cards[proj.sessionCard[sid]]?.executions[sid]
         if (t) {
           storage.upsertExecution({
@@ -836,7 +883,7 @@ async function main(): Promise<void> {
         }
       })
       .catch((err) => {
-        finishSession(proj, sid, 'error', nowMs())
+        finishSessionAndRelease(proj, sid, 'error', nowMs())
         console.error(`[task] ${sid} failed:`, err)
       })
     return sid
@@ -938,7 +985,7 @@ async function main(): Promise<void> {
     void acp.sessionPrompt(sid, prompt).then(async (stopReason) => {
       await waitTailer() // G6：同上（校准提案检测前等 tailer 追上）
       const at = nowMs()
-      finishSession(proj, sid, stopReason, at)
+      finishSessionAndRelease(proj, sid, stopReason, at)
       const t = proj.projects[projectId]?.cards[cardId]?.executions[sid]
       if (!t) return
       if (t.status === 'Done' && t.waiting === null && detectMarker(t, CALIBRATE_DONE_MARKER)) {
@@ -990,7 +1037,7 @@ async function main(): Promise<void> {
     })
     await waitTailer() // G6：同上（目标模式循环检测前等 tailer 追上）
     const at = nowMs()
-    finishSession(proj, sid, stopReason, at)
+    finishSessionAndRelease(proj, sid, stopReason, at)
     const t = proj.projects[projectId]?.cards[cardId]?.executions[sid]
     if (!t) return
     if (t.status === 'Done' && t.waiting === null && detectMarker(t, CHECKPOINT_DONE_MARKER)) {
@@ -1394,7 +1441,7 @@ async function main(): Promise<void> {
           return 'error'
         })
         await waitTailer()
-        finishSession(proj, sid, stopReason, nowMs())
+        finishSessionAndRelease(proj, sid, stopReason, nowMs())
         send(200, { ok: true, stop_reason: stopReason })
         return
       }
@@ -1768,7 +1815,7 @@ async function main(): Promise<void> {
             }
           }
           // G3 修复：校准会话批复后结束（批准/拒绝都是终态，不留僵尸 Running）
-          finishSession(proj, sid, 'end_turn', nowMs())
+          finishSessionAndRelease(proj, sid, 'end_turn', nowMs())
           const ct = proj.projects[appr.project_id]?.cards[proj.sessionCard[sid]]?.executions[sid]
           if (ct) {
             const oldEx = storage.getExecutionBySession(sid)
