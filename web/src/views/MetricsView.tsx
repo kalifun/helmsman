@@ -2,7 +2,7 @@
 // 序列曲线：x = 执行时序（created_at 正序），y = 指标；按 group_tag 分组着色（对照实验 A/B）。
 // 面板：任务数 / 总成本 / 平均成本 / 平均轮次 / 验收通过率 / 平均缓存命中率。
 // 零依赖：SVG 折线手绘（点 + title 原生 tooltip）。
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getMetrics, type MetricRow } from '../api/client';
 import { InsightCards, type InsightPage } from '../components/InsightCards';
 import { LoadingState } from '../components/LoadingState';
@@ -10,7 +10,7 @@ import { useProjection, relTime } from '../store/projection';
 import { RecordsTable } from '../components/RecordsTable';
 import { useUi, writeHash } from '../store/ui';
 
-const W = 680, H = 150, P = { l: 46, r: 14, t: 16, b: 22 };
+const W0 = 680, H = 150, P = { l: 46, r: 14, t: 16, b: 22 };
 
 function nice(v: number): number {
   if (v <= 0) return 1;
@@ -28,6 +28,18 @@ function Line({
   fmt: (v: number) => string;
   label: string;
 }) {
+  // 宽度自适应容器（折线铺满，不留右侧空白）
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [W, setW] = useState(W0)
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const measure = () => setW(Math.max(320, el.clientWidth))
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   const iw = W - P.l - P.r, ih = H - P.t - P.b;
   const all = series.flatMap((s) => s.pts.map((p) => p.y).filter((y): y is number => y != null));
   const max = fixedMax ?? nice(Math.max(...all, 1));
@@ -36,9 +48,9 @@ function Line({
   // 网格（4 条横线）
   const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => ({ y: P.t + ih * f, v: max * (1 - f) }));
   return (
-    <div className="m-line">
+    <div className="m-line" ref={wrapRef}>
       <div className="m-line-label">{label}</div>
-      <svg width={W} height={H} className="m-svg">
+      <svg width={W} height={H} className="m-svg" style={{ display: "block", width: "100%" }}>
         {grid.map((g, i) => (
           <g key={i}>
             <line x1={P.l} x2={W - P.r} y1={g.y} y2={g.y} className="m-grid" />
