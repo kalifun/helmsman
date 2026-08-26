@@ -40,6 +40,7 @@ import { startTailer } from './observe/tail.ts'
 import { recoverStore } from './recovery.ts'
 import { retrieveHybrid, deriveQueries, makeNote, findDuplicateSediment, findDuplicateClusters, scoreNoteDebt, debtDemoteWeight, detectCitedEntries, withStableTag } from './kb.ts'
 import { assembleBrief, renderBriefPrompt, selectStableNotes, extractConclusion, type Brief } from './assembly.ts'
+import { distillWithAgent } from './distill.ts'
 import { compareReport } from './experiment.ts'
 import { runAcceptance } from './verify.ts'
 import type { VerifyResult } from './verify.ts'
@@ -365,13 +366,16 @@ async function main(): Promise<void> {
       console.log(`[kb] 跳过重复沉淀「${conclusion.title}」≈「${dup.note.title}」(${dup.sim.toFixed(2)})`)
       return
     }
+    // 沉淀提炼 Agent（mnemon 借鉴）：独立 ACP 会话（distill 预设，无工具）生成高质量条目；
+    // 失败/超时 → 回落规则版。主对话零污染。
+    const distilled = await distillOrFallback(projectId, title, t, conclusion)
     storage.upsertNote(makeNote({
       projectId,
-      title: conclusion.title,
-      content: conclusion.content,
+      title: distilled.title,
+      content: distilled.content,
       tags: ['auto'],
-      keywords: conclusion.keywords,
-      summary: conclusion.summary,
+      keywords: distilled.keywords,
+      summary: distilled.summary,
       sourceKind: 'task',
       sourceRef: cardId,
       trust: 'agent-generated',
@@ -379,6 +383,41 @@ async function main(): Promise<void> {
     // 知识演化：库内历史重复簇收编（主条保留 + 重复条失效并链接主条）
     const merged = await mergeDuplicateClusters(projectId)
     if (merged > 0) console.log(`[kb] 合并重复 ${merged} 条（项目 ${projectId}）`)
+  }
+
+  /** 活动流最后一个 Text 活动的文本（提炼输入，有界 2000 字符）。 */
+  function lastAgentText(t: TaskState): string {
+    for (let i = t.activities.length - 1; i >= 0; i--) {
+      const a = t.activities[i]
+      if ('Text' in a && a.Text?.text) return a.Text.text.slice(0, 2000)
+    }
+    return ''
+  }
+
+  /** 提炼 Agent 优先、规则版兜底：独立会话生成知识条目（失败/跳过 → 规则结论）。 */
+  async function distillOrFallback(
+    projectId: string,
+    title: string,
+    t: TaskState,
+    rule: { title: string; content: string[]; keywords: string[]; summary: string },
+  ): Promise<{ title: string; content: string[]; keywords: string[]; summary: string }> {
+    try {
+      const notes = storage.listNotes(projectId)
+      const related = await retrieveHybrid(notes, deriveQueries(title), title, { limit: 3 })
+      const distilled = await distillWithAgent(acp, SESSIONS_ROOT, {
+        cwd: WORKSPACE,
+        title,
+        tail: lastAgentText(t),
+        related: related.map((h) => ({ title: h.note.title, summary: h.note.summary || h.note.content[0] || '' })),
+      })
+      if (distilled) {
+        console.log(`[distill] 提炼成功「${distilled.title}」（任务 ${title.slice(0, 24)}）`)
+        return distilled
+      }
+    } catch (e) {
+      console.error('[distill] 提炼异常（回落规则版）:', e instanceof Error ? e.message : e)
+    }
+    return rule
   }
 
   /**
@@ -979,13 +1018,14 @@ async function main(): Promise<void> {
     if (conclusion) {
       const dup = await findDuplicateSediment(storage.listNotes(projectId), conclusion)
       if (!dup) {
+        const distilled = await distillOrFallback(projectId, c.title, t, conclusion)
         const note = makeNote({
           projectId,
-          title: conclusion.title,
-          content: conclusion.content,
+          title: distilled.title,
+          content: distilled.content,
           tags: ['auto'],
-          keywords: conclusion.keywords,
-          summary: conclusion.summary,
+          keywords: distilled.keywords,
+          summary: distilled.summary,
           sourceKind: 'task',
           sourceRef: cardId,
           trust: 'agent-generated',
