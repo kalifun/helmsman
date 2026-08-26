@@ -47,7 +47,7 @@ cd web && pnpm install && pnpm dev             # → http://127.0.0.1:5173
 ### 测试
 
 ```bash
-cd server-ts && pnpm test    # 44 个 vitest 用例
+cd server-ts && pnpm test    # 136 个 vitest 用例
 ```
 
 ## 🏗 技术栈
@@ -82,8 +82,8 @@ web/         React 前端
 - [x] P2·文件内容预览（读取接口 + 语法高亮 + Markdown 渲染）
 - [x] P2·设置热更新（检索阈值 / 装配条数，storage 持久化无需重启）
 - [x] P2·首页真实化（源码管理面板 / 最近沉淀 / 待批复 / git 状态）
-- [ ] P2·桌面壳（Tauri v2 sidecar）
-- [ ] P2·共享工作区写冲突检测
+- [x] P2·并发互斥（git worktree 隔离 + 同时任务上限，根治共享工作区写冲突；原"写冲突检测"条目由本项取代）
+- [ ] P2·桌面壳（Tauri v2 sidecar —— 分发层，排在核心闭环稳定 + 命令级白名单之后；触发信号：觉得"终端两条命令 + 浏览器"烦了、或要让不熟悉 dsh 的人用）
 
 > 状态核对基准：2026-08 按代码核实（README 复选框为快照，接口/服务演进以仓库为准）。
 
