@@ -210,7 +210,7 @@ export function SessionView({ pid }: { pid: string }) {
             rows.map((m, i) => (
               <div key={i} className={'chat-turn ' + m.who}>
                 {m.who === 'user' ? (
-                  <div className="chat-user">{m.text}</div>
+                  <div className="chat-user"><Markdown text={m.text} /></div>
                 ) : (
                   <div className="chat-agent">
                     <Markdown text={m.text} />

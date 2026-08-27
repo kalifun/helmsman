@@ -213,7 +213,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
               if (m.kind === 'user') {
                 return (
                   <div key={m.id} className="sess-row user">
-                    <div className="sess-bub user">{m.text}</div>
+                    <div className="sess-bub user"><Markdown text={m.text ?? ''} /></div>
                   </div>
                 );
               }

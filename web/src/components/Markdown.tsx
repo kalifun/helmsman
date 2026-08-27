@@ -30,6 +30,21 @@ function splitTableRow(line: string): string[] {
 
 export function Markdown({ text }: { text: string }) {
   const blocks = useMemo(() => {
+    // 纯 JSON 输出（无 ``` 围栏，如 distill 提炼结果 / agent 返回的结构化数据）：
+    // 整段 trim 后是合法 JSON → 直接按代码块渲染（等宽 + json 语法高亮），
+    // 避免显示成一坨普通文本。
+    const trimmedWhole = text.trim();
+    const looksJson =
+      (trimmedWhole.startsWith('{') && trimmedWhole.endsWith('}')) ||
+      (trimmedWhole.startsWith('[') && trimmedWhole.endsWith(']'));
+    if (trimmedWhole.length > 0 && looksJson) {
+      try {
+        JSON.parse(trimmedWhole);
+        return [<CodeBlock key="json" code={trimmedWhole} info="json" />];
+      } catch {
+        // 不是合法 JSON，走普通 markdown 解析
+      }
+    }
     const lines = text.split('\n');
     const out: ReactNode[] = [];
     let i = 0;
