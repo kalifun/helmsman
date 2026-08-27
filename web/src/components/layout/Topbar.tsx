@@ -3,7 +3,6 @@
 import { useUi, writeHash } from '../../store/ui';
 import { useProjection } from '../../store/projection';
 import { Icon } from '../icons';
-import { BrandMark } from '../BrandMark';
 import { Button } from '../Button';
 
 const VIEW_LABEL: Record<string, string> = {
@@ -55,17 +54,7 @@ export function Topbar() {
       <Button variant="icon" aria-label="折叠侧栏" title="折叠侧栏" onClick={toggleSide}>
         <Icon name="side" size="sm" />
       </Button>
-      {inProject ? (
-        <button
-          className="logo"
-          onClick={() => {
-            useUi.getState().setRoute({ pid: null, view: 'home', openId: null, tab: 'comments', sessionId: null });
-            writeHash(null, 'home', null, 'comments');
-          }}
-        >
-          <BrandMark size={20} />Helmsman
-        </button>
-      ) : null}
+      {/* 进入项目后不显示 logo：面包屑的「项目」即可回工作台，避免 logo/面包屑重复占位 */}
       <div id="breadcrumb">{breadcrumb}</div>
       <div className="spacer" />
       <div id="conn" data-state={conn}>
