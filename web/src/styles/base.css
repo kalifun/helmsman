@@ -1426,6 +1426,11 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 
 /* --- 流式文本（Beautiful UI Streaming Text 移植：光标 + 动作行）--- */
 .stext p { font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; margin: 0; }
+.stext-md { font-size: 13px; line-height: 1.6; word-break: break-word; }
+.stext-md .cursor {
+  display: inline-block; width: 2px; height: 12px; margin-left: 2px; vertical-align: -1px;
+  background: var(--text); border-radius: 1px; animation: stext-blink 1s steps(2, start) infinite;
+}
 .stext .cursor {
   display: inline-block; width: 2px; height: 12px; margin-left: 2px; vertical-align: -1px;
   background: var(--text); border-radius: 1px; animation: stext-blink 1s steps(2, start) infinite;

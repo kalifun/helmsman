@@ -239,7 +239,7 @@ export function SessionView({ pid }: { pid: string }) {
           ) : null}
           {stream ? (
             <div className="chat-turn">
-              <StreamingText text={stream} streaming sources={sources} onCopy={copyOut} />
+              <StreamingText text={stream} streaming markdown sources={sources} onCopy={copyOut} />
             </div>
           ) : null}
         </SelectionActions>

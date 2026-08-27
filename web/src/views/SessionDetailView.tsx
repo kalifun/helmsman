@@ -248,7 +248,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
             ) : null}
             {stream ? (
               <div className="sess-row">
-                <StreamingText text={stream} streaming className="sess-stream" onCopy={copyOut} />
+                <StreamingText text={stream} streaming markdown className="sess-stream" onCopy={copyOut} />
               </div>
             ) : null}
           </SelectionActions>

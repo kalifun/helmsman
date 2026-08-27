@@ -1,7 +1,9 @@
 // 职责：流式文本（Beautiful UI「Streaming Text」移植，MIT © Shane Levine）——
 //   流式内容 + 闪烁光标；结束后可带 inline sources、动作行（复制/重试）、Follow-ups。
+//   markdown 模式：流式内容实时走 Markdown 渲染（代码块/表格/加粗边打边格式化）。
 //   纯展示：动作经回调上抛。
 import { useEffect, useState } from 'react';
+import { Markdown } from './Markdown';
 
 export interface StreamChip {
   id: string | number;
@@ -12,6 +14,8 @@ export interface StreamChip {
 interface Props {
   text?: string;
   streaming?: boolean;
+  /** markdown 模式：内容走 Markdown 渲染（流式实时格式化） */
+  markdown?: boolean;
   onCopy?: (text: string) => void;
   /** 复制内容；默认用 text。Markdown 已在上方时仍可复制原文 */
   copyValue?: string;
@@ -22,7 +26,7 @@ interface Props {
 }
 
 export function StreamingText({
-  text = '', streaming = false, onCopy, copyValue, onRetry, sources, followups, className = '',
+  text = '', streaming = false, markdown = false, onCopy, copyValue, onRetry, sources, followups, className = '',
 }: Props) {
   const [copied, setCopied] = useState(false);
   const payload = copyValue ?? text;
@@ -41,10 +45,17 @@ export function StreamingText({
   return (
     <div className={'stext' + (className ? ' ' + className : '')}>
       {showBody ? (
-        <p>
-          {text}
-          {streaming ? <span className="cursor" aria-hidden="true" /> : null}
-        </p>
+        markdown ? (
+          <div className="stext-md">
+            <Markdown text={text} />
+            {streaming ? <span className="cursor" aria-hidden="true" /> : null}
+          </div>
+        ) : (
+          <p>
+            {text}
+            {streaming ? <span className="cursor" aria-hidden="true" /> : null}
+          </p>
+        )
       ) : null}
       {showSources && sources ? (
         <div className="stext-sources">

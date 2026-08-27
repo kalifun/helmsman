@@ -256,7 +256,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
                 <span className="who">你</span>
                 <span>{fmtTime(c.at)}</span>
               </div>
-              <div className="cbub">{c.text}</div>
+              <div className="cbub"><Markdown text={c.text ?? ''} /></div>
             </div>
           </div>
         ))}
