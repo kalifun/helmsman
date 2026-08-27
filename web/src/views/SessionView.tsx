@@ -30,19 +30,27 @@ export function SessionView({ pid }: { pid: string }) {
   const [promoteTitle, setPromoteTitle] = useState('');
   const areaRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<PromptBarHandle>(null);
+  // 会话创建防重入：StrictMode dev 下 effect 双调用会连建两个会话，
+  // 用 ref 保证"无 sid 时只创建一次"（后续交给 sid 变化驱动）。
+  const initRef = useRef(false);
 
   // 首次挂载创建会话；之后轮询刷新
   useEffect(() => {
     let alive = true;
-    void (async () => {
-      if (!sid) {
+    if (!sid && !initRef.current) {
+      initRef.current = true;
+      void (async () => {
         const newSid = await useProjection.getState().createChat(pid);
-        if (alive && newSid) {
+        if (!alive) return;
+        if (newSid) {
           setSid(newSid);
           await useProjection.getState().loadChat(newSid, pid);
+        } else {
+          // 创建失败：允许下次重试（initRef 复位，避免永久空白）
+          initRef.current = false;
         }
-      }
-    })();
+      })();
+    }
     const timer = setInterval(() => { if (sid && alive) void useProjection.getState().loadChat(sid, pid); }, 2500);
     return () => { alive = false; clearInterval(timer); };
   }, [pid, sid]);
@@ -83,6 +91,7 @@ export function SessionView({ pid }: { pid: string }) {
       setPromoteOpen(false);
       writeHash(pid, 'kanban', cardId, 'comments');
       setSid(null);
+      initRef.current = false; // 允许提升后开新会话
       setInput('');
     } else {
       toast('提升失败，见错误横幅');
