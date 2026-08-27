@@ -1,4 +1,4 @@
-// 职责：ThemePicker —— 外观选择器：内置主题（6 套 + 跟随系统）与自定义皮肤（互斥单选）。
+// 职责：ThemePicker —— 主题选择器：内置主题（6 套 + 跟随系统）与自定义主题（互斥单选）。
 // 概念：皮肤 = 主题的完全替代（自带完整视觉：色板/字体/背景），选皮肤不再看内置主题颜色。
 // 交互：点内置主题 → 自动停用皮肤；点皮肤 → 皮肤激活、主题不高亮。二者单选互斥。
 // 皮肤（Skin System v2）：theme.json（token 子集）+ theme.css（彻底变装）+ background；
@@ -67,7 +67,7 @@ export function ThemePicker() {
     a.download = 'helmsman-skin.json';
     a.click();
     URL.revokeObjectURL(a.href);
-    flash('已导出 theme.json');
+    flash('已导出 theme.json（可作自定义主题导入）');
   };
 
   /** 导入皮肤（.json 或 .zip）→ 校验 → 存表 → 激活 */
@@ -97,7 +97,7 @@ export function ThemePicker() {
   const removeSkin = (id: string) => {
     deleteSkin(id);
     refresh();
-    flash('皮肤已删除');
+    flash('主题已删除');
   };
 
   /** 一键添加并应用内置示例皮肤 */
@@ -114,8 +114,8 @@ export function ThemePicker() {
     <>
       <div className="set-row">
         <div className="lbl">
-          外观
-          <div className="desc">内置主题与自定义皮肤二选一 · 皮肤 = 主题的完全替代（色板/字体/背景）</div>
+          主题
+          <div className="desc">内置主题与自定义主题二选一（自定义主题可含色板/字体/背景）</div>
         </div>
       </div>
 
@@ -140,10 +140,10 @@ export function ThemePicker() {
         </button>
       </div>
 
-      {/* 自定义皮肤区：卡片同款视觉，与主题互斥 */}
+      {/* 自定义主题区：与内置主题互斥单选 */}
       <div className="skin-area">
         <div className="skin-head">
-          <span className="skin-title">自定义皮肤</span>
+          <span className="skin-title">自定义主题</span>
           <span className="muted" style={{ fontSize: 11 }}>导入 / 添加示例 / 导出，选中即应用</span>
         </div>
         {skinList.length > 0 ? (
@@ -168,19 +168,19 @@ export function ThemePicker() {
                   {s.bg ? ' · 背景' : ''}
                 </span>
                 <span className="skin-card-ops" onClick={(e) => e.stopPropagation()}>
-                  <button className="btn mini ghost" onClick={() => removeSkin(s.id)} title="删除皮肤">删除</button>
+                  <button className="btn mini ghost" onClick={() => removeSkin(s.id)} title="删除主题">删除</button>
                 </span>
               </button>
             ))}
           </div>
         ) : (
-          <div className="muted" style={{ fontSize: 12, padding: '6px 0' }}>还没有自定义皮肤 —— 从示例开始，或导入你的皮肤包。</div>
+          <div className="muted" style={{ fontSize: 12, padding: '6px 0' }}>还没有自定义主题 —— 从示例开始，或导入你的主题包。</div>
         )}
         <div className="skin-actions">
-          <button className="btn mini ghost" onClick={() => applyDemo(WHALE_SKIN)}>+ 示例 · 鲸</button>
-          <button className="btn mini ghost" onClick={() => applyDemo(PAPER_SKIN)}>+ 示例 · 宣纸变装</button>
-          <button className="btn mini" onClick={() => fileRef.current?.click()}>导入皮肤（json/zip）</button>
-          <button className="btn mini" onClick={exportTheme}>导出当前外观</button>
+          <button className="btn mini ghost" onClick={() => applyDemo(WHALE_SKIN)}>+ 示例主题 · 鲸</button>
+          <button className="btn mini ghost" onClick={() => applyDemo(PAPER_SKIN)}>+ 示例主题 · 宣纸变装</button>
+          <button className="btn mini" onClick={() => fileRef.current?.click()}>导入主题（json/zip）</button>
+          <button className="btn mini" onClick={exportTheme}>导出当前主题</button>
           <input
             ref={fileRef}
             type="file"
