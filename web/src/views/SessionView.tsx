@@ -121,12 +121,15 @@ export function SessionView({ pid }: { pid: string }) {
     { id: 'save', label: '存入知识库', hint: 'human-approved', run: () => { if (hasThread) void saveKb(); else toast('先聊几句再保存'); } },
   ];
 
-  // 消息行：user 评论 + agent Text 活动
-  const rows: { who: 'user' | 'agent'; text: string }[] = [];
-  (task?.comments || []).forEach((c) => rows.push({ who: c.who, text: c.text }));
-  (task?.activities || []).forEach((a) => {
-    if ('Text' in a && a.Text?.text) rows.push({ who: 'agent', text: a.Text.text });
-  });
+  // 消息行：user 评论 + agent Text 活动，按时间戳交错合并
+  // （不能"先全部评论再全部活动"——会变成上面全是发送、下面全是回复）
+  const rows: { who: 'user' | 'agent'; text: string }[] = [
+    ...(task?.comments || []).map((c) => ({ who: c.who, text: c.text, at: c.at ?? 0 })),
+    ...(task?.activities || []).flatMap((a) =>
+      'Text' in a && a.Text?.text ? [{ who: 'agent' as const, text: a.Text.text, at: a.Text.at ?? 0 }] : [],
+    ),
+  ].sort((a, b) => (a.at || 0) - (b.at || 0))
+    .map(({ who, text }) => ({ who, text }));
 
   // 工具调用汇总（ToolStart 与紧随的 ToolResult 配对 → 折叠 chips）
   const toolCalls: ToolChip[] = (() => {

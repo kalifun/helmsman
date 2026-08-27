@@ -24,6 +24,8 @@ interface Msg {
   kind: 'user' | 'text' | 'think';
   text?: string;
   rows?: ThinkRow[];
+  /** 时间戳（epoch ms，排序交错用） */
+  at?: number;
 }
 
 export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
@@ -82,7 +84,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
     const msgs: Msg[] = [];
     let n = 0;
     ((task?.comments) ?? []).forEach((c) => {
-      if (c.who === 'user') msgs.push({ id: n++, kind: 'user', text: c.text });
+      if (c.who === 'user') msgs.push({ id: n++, kind: 'user', text: c.text, at: c.at ?? 0 });
     });
     // 工具调用参数索引
     const toolById: Record<string, { args?: string; is_error?: boolean }> = {};
@@ -91,7 +93,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
     let group: ThinkRow[] | null = null;
     const flush = () => {
       if (group && group.length) {
-        msgs.push({ id: n++, kind: 'think', rows: group });
+        msgs.push({ id: n++, kind: 'think', rows: group, at: group[0]?.at ?? 0 });
         group = null;
       }
     };
@@ -102,7 +104,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
       const a = acts[i];
       if ('Reasoning' in a) {
         if (!group) group = [];
-        group.push({ id: n++, kind: 'think', text: a.Reasoning.text });
+        group.push({ id: n++, kind: 'think', text: a.Reasoning.text, at: a.Reasoning.at ?? 0 });
         i++;
       } else if ('ToolStart' in a) {
         const row: ThinkRow = {
@@ -111,6 +113,7 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
           name: a.ToolStart.name,
           args: toolById[a.ToolStart.name]?.args ?? '',
           err: toolById[a.ToolStart.name]?.is_error ?? false,
+          at: a.ToolStart.at ?? 0,
         };
         // 合并紧随其后的 ToolResult（耗时/成败）
         let j = i + 1;
@@ -127,14 +130,15 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
         i = j;
       } else if ('Text' in a) {
         flush();
-        msgs.push({ id: n++, kind: 'text', text: a.Text.text });
+        msgs.push({ id: n++, kind: 'text', text: a.Text.text, at: a.Text.at ?? 0 });
         i++;
       } else {
         i++;
       }
     }
     flush();
-    return msgs;
+    // 按时间交错（稳定排序：同 turn 的推理/工具/正文相对顺序保持，user 评论落位）
+    return msgs.sort((x, y) => (x.at ?? 0) - (y.at ?? 0));
   })();
 
   const st = task ? effectiveStatus(task) : 'Pending';

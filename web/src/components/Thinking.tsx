@@ -18,6 +18,8 @@ export interface ThinkRow {
   /** tool 行耗时 / 自定义右侧信息 */
   ms?: number;
   meta?: string;
+  /** 时间戳（epoch ms，消息交错排序用） */
+  at?: number;
 }
 
 const VARIANTS: { id: ThinkVariant; label: string }[] = [
