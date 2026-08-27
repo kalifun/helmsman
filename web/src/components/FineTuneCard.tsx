@@ -1,6 +1,6 @@
 // 职责：微调卡（Beautiful UI「Fine-tune Card」移植，MIT © Shane Levine）——
-//   界面 inspector：圆角 / 氛围透明度 / 主题类型。全部写入 ThemeStore（localStorage），不是假滑杆。
-import { THEMES, SYSTEM_THEME_ID } from '../theme/themes';
+//   对当前主题的微调：圆角 / 氛围透明度。全部写入 ThemeStore（localStorage），不是假滑杆。
+//   主题选择已并入 ThemePicker 网格（内置 + 导入统一列表），此处不再重复"类型"下拉。
 import { useThemeStore, type AtmoLevel } from '../theme/ThemeProvider';
 
 const ATMO: { v: AtmoLevel; n: number; label: string }[] = [
@@ -18,8 +18,6 @@ function atmoOf(n: number): AtmoLevel {
 }
 
 export function FineTuneCard() {
-  const themeId = useThemeStore((s) => s.themeId);
-  const setTheme = useThemeStore((s) => s.setTheme);
   const atmo = useThemeStore((s) => s.atmo);
   const setAtmo = useThemeStore((s) => s.setAtmo);
   const radius = useThemeStore((s) => s.radius);
@@ -29,8 +27,8 @@ export function FineTuneCard() {
   return (
     <div className="ftune">
       <div className="ftune-head">
-        <span className="ftune-title">界面</span>
-        <span className="ftune-adj">调整</span>
+        <span className="ftune-title">微调当前主题</span>
+        <span className="ftune-adj">圆角 · 氛围</span>
       </div>
       <div className="ftune-body">
         <div className="ftune-row">
@@ -57,13 +55,6 @@ export function FineTuneCard() {
             onChange={(e) => setAtmo(atmoOf(Number(e.target.value)))}
           />
           <span className="ftune-n">{ATMO.find((x) => x.v === atmo)?.label}</span>
-        </div>
-        <div className="ftune-row">
-          <span className="ftune-k">类型</span>
-          <select value={themeId} aria-label="主题" onChange={(e) => setTheme(e.target.value)}>
-            {THEMES.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            <option value={SYSTEM_THEME_ID}>跟随系统</option>
-          </select>
         </div>
       </div>
     </div>

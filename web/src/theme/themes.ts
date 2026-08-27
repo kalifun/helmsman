@@ -30,6 +30,8 @@ export interface Theme {
   id: string;
   name: string;
   en: string;
+  /** 来源标记：builtin（内置）/ custom（导入的自定义主题） */
+  tag?: 'builtin' | 'custom';
   /** 色板预览（3 个主色） */
   sw: string[];
   /** 25 键语义 token */
