@@ -10,9 +10,8 @@ import { Icon } from '../components/icons';
 import { ToolChips, type ToolChip } from '../components/ToolChips';
 import { Thinking, type ThinkRow } from '../components/Thinking';
 import { StreamingText } from '../components/StreamingText';
-import { LoadingState } from '../components/LoadingState';
 import { Markdown } from '../components/Markdown';
-import { ChatPanel } from '../components/ChatPanel';
+import { ChatPanel, type ChatTab } from '../components/ChatPanel';
 import { PromptBar, type PromptBarHandle, type SlashCommand } from '../components/PromptBar';
 import { SelectionActions, promptFromSelection } from '../components/SelectionActions';
 
@@ -20,6 +19,7 @@ interface KbHit { id: string; title: string; summary: string }
 
 export function SessionView({ pid }: { pid: string }) {
   const chats = useProjection((s) => s.chats[pid] || {});
+  const chatList = useProjection((s) => s.chatList[pid] || []);
   const conn = useProjection((s) => s.conn);
   const toast = useUi((s) => s.toast);
   const [sid, setSid] = useState<string | null>(null);
@@ -30,30 +30,31 @@ export function SessionView({ pid }: { pid: string }) {
   const [promoteTitle, setPromoteTitle] = useState('');
   const areaRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<PromptBarHandle>(null);
-  // 会话创建防重入：StrictMode dev 下 effect 双调用会连建两个会话，
-  // 用 ref 保证"无 sid 时只创建一次"（后续交给 sid 变化驱动）。
-  const initRef = useRef(false);
 
-  // 首次挂载创建会话；之后轮询刷新
+  // 挂载：复用最新会话（不创建）。无历史 → sid=null 显示空态，发消息时才创建。
+  // 用户切历史会话 / 点新会话 → setSid。
   useEffect(() => {
     let alive = true;
-    if (!sid && !initRef.current) {
-      initRef.current = true;
-      void (async () => {
-        const newSid = await useProjection.getState().createChat(pid);
-        if (!alive) return;
-        if (newSid) {
-          setSid(newSid);
-          await useProjection.getState().loadChat(newSid, pid);
-        } else {
-          // 创建失败：允许下次重试（initRef 复位，避免永久空白）
-          initRef.current = false;
-        }
-      })();
-    }
-    const timer = setInterval(() => { if (sid && alive) void useProjection.getState().loadChat(sid, pid); }, 2500);
+    void (async () => {
+      await useProjection.getState().loadChats(pid);
+      if (!alive) return;
+      const list = useProjection.getState().chatList[pid] || [];
+      if (list.length > 0) {
+        // 复用最新会话（按 started_at 降序取第一个）
+        const latest = [...list].sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))[0];
+        setSid(latest.session_id);
+        await useProjection.getState().loadChat(latest.session_id, pid);
+      } else {
+        setSid(null); // 空态：不创建，等用户发消息
+      }
+    })();
+    // 当前会话轮询刷新（sid 变化时重绑）
+    const timer = setInterval(() => {
+      const cur = useProjection.getState();
+      if (cur.chatList[pid]?.length && alive) void cur.loadChats(pid);
+    }, 4000);
     return () => { alive = false; clearInterval(timer); };
-  }, [pid, sid]);
+  }, [pid]);
 
   const task: TaskState | undefined = sid ? chats[sid] : undefined;
   const stream = useProjection((s) => (sid ? s.streams[sid] : undefined));
@@ -65,11 +66,22 @@ export function SessionView({ pid }: { pid: string }) {
 
   const send = async () => {
     const v = input.trim();
-    if (!v || busy || !sid) return;
+    if (!v || busy) return;
     if (conn !== 'online') { toast('断连期间禁用控制操作'); return; }
     setBusy(true);
     setInput('');
-    const ok = await useProjection.getState().sendChat(sid, v);
+    // 懒创建：无 sid 时（首次发消息）才真正建会话
+    let target = sid;
+    if (!target) {
+      target = await useProjection.getState().createChat(pid);
+      if (!target) {
+        setBusy(false);
+        toast('会话创建失败，见错误横幅');
+        return;
+      }
+      setSid(target);
+    }
+    const ok = await useProjection.getState().sendChat(target, v);
     setBusy(false);
     if (!ok) toast('发送失败，见错误横幅');
   };
@@ -91,7 +103,6 @@ export function SessionView({ pid }: { pid: string }) {
       setPromoteOpen(false);
       writeHash(pid, 'kanban', cardId, 'comments');
       setSid(null);
-      initRef.current = false; // 允许提升后开新会话
       setInput('');
     } else {
       toast('提升失败，见错误横幅');
@@ -162,9 +173,31 @@ export function SessionView({ pid }: { pid: string }) {
     { id: 'save', label: '存入知识库', onClick: () => void saveKb() },
   ] : undefined;
 
+  // 会话切换器：历史会话 tabs（最新在前）+ 新会话
+  const sortedChats = [...chatList].sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0));
+  const chatTabs: ChatTab[] = [
+    ...sortedChats.slice(0, 8).map((c) => ({
+      id: c.session_id,
+      label: c.last_text ? c.last_text.slice(0, 14) + (c.last_text.length > 14 ? '…' : '') : '空会话',
+    })),
+    { id: '__new__', label: '＋ 新会话' },
+  ];
+  const switchChat = (id: string) => {
+    if (id === '__new__') {
+      setSid(null); // 空态；发消息时才创建
+      setInput('');
+      return;
+    }
+    setSid(id);
+    void useProjection.getState().loadChat(id, pid);
+  };
+
   return (
     <div id="chatview">
       <ChatPanel
+        tabs={chatTabs}
+        tab={sid ?? '__new__'}
+        onTab={switchChat}
         bodyRef={areaRef}
         footer={(
           <>
@@ -173,8 +206,8 @@ export function SessionView({ pid }: { pid: string }) {
               value={input}
               onChange={setInput}
               onSend={() => void send()}
-              placeholder="问点什么，或探索这个项目…  @ 引用知识库  / 命令"
-              disabled={offline || !sid}
+              placeholder={sid ? "继续这个会话…  @ 引用知识库  / 命令" : "开始新会话：问点什么…  @ 引用知识库  / 命令"}
+              disabled={offline}
               busy={busy}
               mentions={kbHits.map((h) => ({ id: h.id, title: h.title, sub: h.summary?.slice(0, 60) }))}
               onMentionQuery={(q) => void searchKb(q)}
@@ -207,7 +240,9 @@ export function SessionView({ pid }: { pid: string }) {
         >
           {!sid ? (
             <div className="chat-empty">
-              <LoadingState variant="dots" label="创建会话中…" />
+              <Icon name="chat" className="ic" style={{ width: 26, height: 26, color: 'var(--text3)' }} />
+              <div className="t">新会话</div>
+              <div className="d">在下方输入第一条消息即开始（不发消息不会创建会话）。问答与探索不进入看板；聊出眉目可提升为任务，值得记住的存入知识库。</div>
             </div>
           ) : rows.length === 0 ? (
             <div className="chat-empty">
