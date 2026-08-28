@@ -1026,6 +1026,8 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
   max-width: 78%; background: var(--surface); border: 1px solid var(--line);
   border-radius: 4px 12px 12px 12px; padding: 9px 13px;
   font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  /* 超长消息（如任务简报/蒸馏输入）限制高度内部滚动，避免气泡占满整屏 */
+  max-height: 46vh; overflow-y: auto;
 }
 .sd-chat .sess-bub.md-bub { white-space: normal; }
 .sd-chat .sess-bub.user { background: var(--bg-blue); border-color: transparent; border-radius: 12px 4px 12px 12px; }

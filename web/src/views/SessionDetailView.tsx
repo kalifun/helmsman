@@ -46,7 +46,11 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
   const task: TaskState | undefined = card?.executions[sid] ?? chats[sid];
   const stream = streams[sid];
 
-  const back = () => writeHash(pid, useUi.getState().view === 'kanban' ? 'kanban' : 'kanban', card?.id ?? null, 'comments');
+  // 返回进入前的视图（openSession 把 view 保留在 URL；不能写死 kanban）
+  const back = () => {
+    const from = useUi.getState().view;
+    writeHash(pid, from === 'home' ? 'kanban' : from, card?.id ?? null, 'comments');
+  };
 
   // 底部锚定（聊天视图）
   useEffect(() => {
