@@ -275,7 +275,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
           <h2 style={{ flex: 1, minWidth: 0 }}>{card.title || cardId.slice(0, 16)}</h2>
           <Button mini variant="ghost" onClick={() => openSession(pid, sid, useUi.getState().view, cardId)} title="进入全屏会话（可继续聊）">↗ 进入会话</Button>
           <Button variant="icon" onClick={close} title="关闭（Esc）" aria-label="关闭">
-            <Icon name="plus" size="sm" style={{ transform: 'rotate(45deg)' }} />
+            <Icon name="x" size="sm" />
           </Button>
         </div>
         <div className="drawer-meta">

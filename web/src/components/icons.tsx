@@ -1,7 +1,7 @@
 // 职责：内联 SVG 图标集 —— 从 taskboard-v9.html 原样移植（stroke 风格，1.6 线宽，随 currentColor）。
 export type IconName =
   | 'app' | 'folder' | 'board' | 'graph' | 'chat' | 'kb' | 'play' | 'plus' | 'refresh'
-  | 'search' | 'warn' | 'home' | 'side' | 'gear' | 'check' | 'lock' | 'doc';
+  | 'search' | 'warn' | 'home' | 'side' | 'gear' | 'check' | 'lock' | 'doc' | 'x';
 
 const PATHS: Record<IconName, React.ReactNode> = {
   app: (<><rect x="1" y="1" width="14" height="14" rx="3.5" /><path d="M4.5 5.5h7M4.5 8h7M4.5 10.5h4.5" /></>),
@@ -21,6 +21,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   check: (<path d="M3 8.5 6.5 12 13 4.5" />),
   lock: (<><rect x="3.5" y="7.5" width="9" height="6.5" rx="1.5" /><path d="M5.5 7.5V5.5a2.5 2.5 0 0 1 5 0v2" /></>),
   doc: (<><path d="M4 1.5h5.5L13 5v9.5H4z" /><path d="M9.5 1.5V5H13" /></>),
+  x: (<path d="M4 4l8 8M12 4l-8 8" />),
 };
 
 export function Icon({
