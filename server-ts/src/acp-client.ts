@@ -181,6 +181,19 @@ export class AcpClient {
     return r.sessionId
   }
 
+  /** 恢复持久化会话（session/resume，dsh-acp patch 支持）：服务重启后历史会话继续。
+   *  sessionId 必须已存在于会话日志（JSONL）；cwd 决定日志目录。 */
+  async sessionResume(sessionId: string, cwd: string, presetId?: string): Promise<string> {
+    const r = await this.call<{ sessionId: string }>('session/resume', {
+      sessionId,
+      cwd,
+      additionalDirectories: [],
+      mcpServers: [],
+      ...(presetId ? { _meta: { agentPreset: presetId } } : {}),
+    })
+    return r.sessionId
+  }
+
   /** 发一条文本 prompt，阻塞到 agent idle（end_turn / cancelled）。 */
   async sessionPrompt(sessionId: string, text: string): Promise<string> {
     const r = await this.call<{ stopReason: string }>('session/prompt', {

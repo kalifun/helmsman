@@ -1,5 +1,5 @@
 diff --git a/lib/index.js b/lib/index.js
-index d7ca62d..f858a89 100644
+index d7ca62d..a48952f 100644
 --- a/lib/index.js
 +++ b/lib/index.js
 @@ -363,7 +363,13 @@ function apply(ctx, config) {
@@ -17,7 +17,71 @@ index d7ca62d..f858a89 100644
  			options: [{
  				optionId: "allow-once",
  				name: "Allow once",
-@@ -404,10 +410,32 @@ function apply(ctx, config) {
+@@ -389,25 +395,91 @@ function apply(ctx, config) {
+ 						name: "deepseek-harness-acp",
+ 						version: "0.0.1"
+ 					},
+-					agentCapabilities: { promptCapabilities: {
+-						image: imagePromptEnabled,
+-						audio: false,
+-						embeddedContext: false
+-					} },
++					agentCapabilities: {
++						promptCapabilities: {
++							image: imagePromptEnabled,
++							audio: false,
++							embeddedContext: false
++						},
++						// [helmsman-patch] 声明 session/resume 支持：历史会话（简单会话/任务）跨进程重启后可恢复继续。
++						sessionCapabilities: { resume: {} }
++					},
+ 					authMethods: []
+ 				};
+ 			},
+ 			authenticate(_params) {
+ 				return Promise.resolve();
+ 			},
++			// [helmsman-patch] session/resume：恢复持久化会话（服务重启后继续历史对话）。
++			// 入参 sessionId + cwd（ACP ResumeSessionRequest）；复用 agents.resume（引擎原生能力）。
++			// resume 前会话不在 sessions Map（重启后），resume 成功后注册进去，prompt 可继续。
++			async resumeSession(params) {
++				assertOpen();
++				const sessionId = SessionId(params.sessionId);
++				if (sessionId.length === 0) throw invalidParams("sessionId required for session/resume");
++				const agentPreset = params._meta?.agentPreset;
++				const meta = agentPreset !== void 0 && agentPreset !== null
++					? { cwd: params.cwd, agentPreset }
++					: { cwd: params.cwd };
++				const setup = agentPreset !== void 0 && agentPreset !== null
++					? async (agentCtx, commit) => {
++						try {
++							const presets = ctx.get("agentPresets");
++							if (presets) await presets.mount(agentCtx, agentPreset);
++							commit?.();
++						} catch (err) {
++							console.error(`[preset-join] mount "${agentPreset}" failed:`, err?.message ?? err);
++							commit?.();
++						}
++					}
++					: void 0;
++				const handle = await agents.resume({
++					resumeSessionId: sessionId,
++					agentOptions: agentOptions(config),
++					...(setup ? { setup } : {})
++				});
++				if (closed) {
++					await handle.dispose();
++					throw internalError("connection closed during session/resume");
++				}
++				sessions.set(sessionId, {
++					agent: handle.agent,
++					dispose: () => handle.dispose(),
++					outputTail: Promise.resolve(),
++					inflight: void 0
++				});
++				return { sessionId };
++			},
+ 			async newSession(params) {
  				assertOpen();
  				validateSessionParams(params);
  				const sessionId = SessionId(randomUUID());

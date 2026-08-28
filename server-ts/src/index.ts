@@ -1494,10 +1494,32 @@ async function main(): Promise<void> {
         const body = await readBody()
         const text = typeof body.text === 'string' && body.text.trim() ? body.text.trim() : ''
         if (!text) throw new HttpError(400, 'text required')
-        const stopReason = await acp.sessionPrompt(sid, text).catch((e) => {
-          console.error(`[chat] ${sid}:`, e)
-          return 'error'
+        let stopReason = await acp.sessionPrompt(sid, text).catch((e) => {
+          const msg = e instanceof Error ? e.message : String(e)
+          console.warn(`[chat] ${sid}: ${msg.slice(0, 120)}`)
+          return 'error:' + msg
         })
+        // 会话恢复（P1）：引擎重启后历史会话不在进程内（unknown session）→
+        // 用 session/resume 从 JSONL 日志恢复同一会话，再重发消息（续上历史对话）。
+        if (typeof stopReason === 'string' && stopReason.startsWith('error:') && stopReason.includes('unknown session')) {
+          const pid2 = proj.sessionProject[sid]
+          const cwd = pid2 ? proj.projects[pid2]?.path : undefined
+          if (cwd) {
+            console.warn(`[chat] ${sid} 会话已失效，尝试 resume（cwd=${cwd}）`)
+            try {
+              const resumed = await acp.sessionResume(sid, cwd)
+              if (resumed === sid) {
+                stopReason = await acp.sessionPrompt(sid, text).catch((e2) => {
+                  console.error(`[chat] resume 后重发失败 ${sid}:`, e2)
+                  return 'error'
+                })
+              }
+            } catch (e3) {
+              console.error(`[chat] resume ${sid} 失败:`, e3)
+              stopReason = 'error'
+            }
+          }
+        }
         await waitTailer()
         finishSessionAndRelease(proj, sid, stopReason, nowMs())
         send(200, { ok: true, stop_reason: stopReason })
