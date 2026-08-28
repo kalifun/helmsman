@@ -139,7 +139,8 @@ export function TrajectoryView({ task, stream }: Props) {
   const bottomPad = Math.max(0, (rows.length - range[1]) * ROW_H);
 
   return (
-    <div className="traj-scroll" ref={scrollRef} onScroll={onScroll} style={{ overflowY: 'auto' }}>
+    <div className="traj-wrap">
+      <div className="traj-scroll" ref={scrollRef} onScroll={onScroll} style={{ overflowY: 'auto' }}>
       <div className="sess-meta">
         <span className="kv">模型 <b>{task.model || '-'}</b></span>
         <span className="kv">回合 <b>{task.turns ?? 0}</b></span>
@@ -169,6 +170,7 @@ export function TrajectoryView({ task, stream }: Props) {
       ) : null}
       {running ? <div className="sess-caret">▌</div> : null}
 
+      </div>
       {execUsage ? (
         <div className="cost-block">
           <div className="t">回合成本（本执行）</div>
