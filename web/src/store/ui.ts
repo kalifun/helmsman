@@ -102,8 +102,10 @@ export function writeHash(pid: string | null, view: ViewId, openId: string | nul
   if (location.hash !== h) location.hash = h;
 }
 
-/** 跳会话钻入全屏页：#pid=&t=<sid>（保留 view 以便返回） */
+/** 跳会话钻入全屏页：#pid=&t=<sid>（保留 view 以便返回）
+ *  进入会话时清 openId：抽屉自动关闭，会话全屏独立——不再"会话+抽屉叠着"，
+ *  抽屉 × 也不会连带关掉会话。 */
 export function openSession(pid: string, sid: string, view: ViewId, cardId: string | null) {
-  useUi.getState().setRoute({ sessionId: sid, openId: cardId, pid });
-  writeHash(pid, view, cardId, 'comments', sid);
+  useUi.getState().setRoute({ sessionId: sid, openId: null, pid });
+  writeHash(pid, view, null, 'comments', sid);
 }
