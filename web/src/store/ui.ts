@@ -97,7 +97,9 @@ export function writeHash(pid: string | null, view: ViewId, openId: string | nul
   if (tab && tab !== 'comments') params.push('tab=' + tab);
   if (sessionId) params.push('t=' + encodeURIComponent(sessionId));
   const h = params.length ? '#' + params.join('&') : '#';
-  if (location.hash !== h) history.replaceState(null, '', h);
+  // 必须触发 hashchange（App 监听它 parseHash → 更新 store → 重渲染）：
+  // history.replaceState 只改地址栏不触发事件，是"点返回没反应"的根因。
+  if (location.hash !== h) location.hash = h;
 }
 
 /** 跳会话钻入全屏页：#pid=&t=<sid>（保留 view 以便返回） */
