@@ -43,6 +43,24 @@ function speechCtor(): (new () => SpeechRec) | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+/** 模式 chip 光标图标（InputBar 形态） */
+function CursorIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+    </svg>
+  );
+}
+
+/** 下拉 chevron 图标 */
+function ChevronIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="pbar-chip-chev" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
 /** 光标前尚未闭合的 @query（忽略已完成的 @[title]） */
 export function mentionAt(text: string, caret: number): { start: number; q: string } | null {
   const before = text.slice(0, caret);
@@ -73,6 +91,8 @@ interface Props {
   commands?: SlashCommand[];
   /** 当前模型名（只展示；没有切换 API 就不做假 picker） */
   model?: string;
+  /** 协作模式名（Agent / Auto 等，只展示） */
+  mode?: string;
   /** 工具栏左侧附加动作（提升为任务等） */
   actions?: ReactNode;
   /** 条下方附加（提升表单等） */
@@ -92,6 +112,7 @@ export const PromptBar = forwardRef<PromptBarHandle, Props>(function PromptBar({
   mentionEmpty = '无命中',
   commands = [],
   model,
+  mode = 'Agent',
   actions,
   extra,
   variant = 'rounded',
@@ -332,8 +353,19 @@ export const PromptBar = forwardRef<PromptBarHandle, Props>(function PromptBar({
         ) : null}
         {actions}
         <span className="pbar-spacer" />
-        {model ? <span className="pbar-model" title="当前模型">{model}</span> : null}
-        {canSpeak ? (
+        {/* 模式 + 模型下拉 chip（InputBar 形态：左侧选择，右侧发送） */}
+        <span className="pbar-chip" title="协作模式">
+          <CursorIcon />
+          <span>{mode}</span>
+          <ChevronIcon />
+        </span>
+        <span className="pbar-chip" title="当前模型">
+          <span className="pbar-chip-model">{model || 'deepseek-v4-flash'}</span>
+          <ChevronIcon />
+        </span>
+        {/* 语音按钮暂隐藏：浏览器原生语音识别对中文/术语准确率不稳，功能不完善不暴露入口
+            （保留代码，未来接入可靠识别后置 true 恢复） */}
+        {false && canSpeak ? (
           <button
             type="button"
             className={'pbar-tool' + (listening ? ' on' : '')}
@@ -348,14 +380,23 @@ export const PromptBar = forwardRef<PromptBarHandle, Props>(function PromptBar({
             </svg>
           </button>
         ) : null}
-        <span className="kbd">Enter 发送</span>
         <button
           type="button"
-          className="btn mini primary"
+          className={'pbar-send' + (sendOk ? ' on' : '')}
           disabled={!sendOk}
+          title="发送"
+          aria-label="发送"
           onClick={() => { recRef.current?.stop(); onSend(); }}
         >
-          {busy ? '发送中' : '发送'}
+          {busy ? (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="8" />
+            </svg>
+          ) : (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+          )}
         </button>
       </div>
       {extra}

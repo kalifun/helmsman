@@ -180,15 +180,29 @@ svg.ic.sm { width: 13px; height: 13px; }
 @keyframes blink { 50% { opacity: .25; } }
 
 /* ---------- 视图切换（segmented） ---------- */
-.toolbar { display: flex; align-items: center; padding: 10px 20px 12px; }
-.viewswitch { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 1px; }
-.viewswitch .btn {
-  background: transparent; border: none; color: var(--text2); border-radius: 6px;
-  padding: 4px 14px; font-size: 12.5px;
+.toolbar { display: flex; align-items: center; justify-content: center; padding: 10px 20px 12px; position: relative; }
+.toolbar .hint { position: absolute; right: 20px; font-size: 11.5px; color: var(--text3); }
+/* 视图切换：药丸滑动 tab（激活指示器绝对定位 + 弹性滑动，纯 CSS） */
+.viewswitch {
+  position: relative; display: inline-flex; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px; gap: 1px;
 }
-.viewswitch .btn:hover { color: var(--text); background: var(--bg-gray); }
-.viewswitch .btn.active { background: var(--ink); color: #fff; }
-.toolbar .hint { margin-left: auto; font-size: 11.5px; color: var(--text3); }
+.viewswitch-pill {
+  position: absolute; top: 3px; bottom: 3px; border-radius: 999px; z-index: 0;
+  background: linear-gradient(90deg, var(--bg-blue), var(--bg-green));
+  border: 1px solid var(--line2);
+  box-shadow: var(--shadow-hover);
+  transition: left .3s cubic-bezier(.16,1,.3,1), width .3s cubic-bezier(.16,1,.3,1);
+}
+.viewswitch .btn {
+  position: relative; z-index: 1;
+  background: transparent; border: none; color: var(--text2); border-radius: 999px;
+  padding: 5px 16px; font-size: 12.5px; white-space: nowrap;
+  transition: color .15s;
+}
+.viewswitch .btn:hover { color: var(--text); }
+.viewswitch .btn.active { color: var(--ink); font-weight: 500; }
 
 .stage-main { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 
@@ -1042,7 +1056,7 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 }
 .sd-tab:hover { color: var(--text); background: var(--bg-gray); }
 .sd-tab.active { color: var(--text); background: var(--bg-gray); font-weight: 500; }
-.sd-chat { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); background: var(--canvas); }
+.sd-chat { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); }
 .sd-chat .selact { width: 100%; display: flex; flex-direction: column; gap: var(--sp-2); }
 .sd-chat .sess-row { display: flex; gap: 10px; margin-bottom: 2px; align-items: flex-start; }
 .sd-chat .sess-row.user { justify-content: flex-end; }
@@ -1050,7 +1064,7 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
   /* 覆盖 .sess-bub 的 flex:1（flex-grow 会让气泡撑满整行，文字后留大片空白）——
      改为按内容宽度，配合 max-width 上限，短消息气泡紧凑 */
   flex: 0 1 auto; min-width: 0;
-  max-width: 78%; background: var(--surface); border: 1px solid var(--line);
+  max-width: 78%; background: var(--surface2); border: 1px solid var(--line);
   border-radius: 4px 12px 12px 12px; padding: 9px 13px;
   font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
   /* 超长消息（如任务简报/蒸馏输入）限制高度内部滚动，避免气泡占满整屏 */
@@ -1061,14 +1075,15 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .sd-chat .sess-bub.dim { color: var(--text3); font-size: 12.5px; }
 .sd-chat .sess-bub.err { border-color: rgba(159,47,45,.4); color: var(--red); }
 .sd-chat .sess-tool { max-width: 78%; }
-.sd-traj { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: var(--sp-3) var(--sp-4); background: var(--canvas); }
+.sd-traj { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: var(--sp-3) var(--sp-4); }
 .sd-traj .traj-scroll { flex: 1; }
+/* 会话详情输入区：与简单会话一致——无容器样式（无背景/边框/圆角），仅留白。
+   输入框限 720px 居中（对齐简单会话）。 */
 .sd-input {
-  padding: 14px 24px 22px; border-top: 1px solid var(--line); background: var(--canvas);
-  border-radius: 0 0 var(--r-lg) var(--r-lg);
-  /* 输入框悬浮：canvas 底（消息区一致），pbar 白卡浮在浅底上——对比产生悬浮感 */
+  padding: 12px 24px 20px;
+  background: transparent; border-top: none;
 }
-.sd-input .pbar { max-width: none; border-radius: var(--r-lg); }
+.sd-input .pbar { max-width: 720px; margin: 0 auto; }
 
 /* 批复里的计划内容（plan 详情） */
 .appr-plan { margin-top: var(--sp-2); }
@@ -1682,11 +1697,27 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .pbar-tool:hover { background: var(--bg-gray); color: var(--text); }
 .pbar-tool:disabled { opacity: .4; cursor: not-allowed; }
 .pbar-tool.on { background: var(--bg-blue); color: var(--blue); }
-.pbar-model {
-  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-family: var(--mono); font-size: 11px; color: var(--text3);
-  background: var(--canvas); border: 1px solid var(--line2); border-radius: 999px; padding: 2px 8px;
+/* 模式/模型下拉 chip（InputBar 形态：光标/名称 + chevron） */
+.pbar-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px;
+  font-family: var(--font); font-size: 11.5px; color: var(--text2);
+  background: var(--canvas); border: 1px solid var(--line2); border-radius: var(--r-sm);
+  cursor: default; white-space: nowrap; flex-shrink: 0;
 }
+.pbar-chip:hover { border-color: var(--line2); background: var(--bg-gray); }
+.pbar-chip-model { max-width: 110px; overflow: hidden; text-overflow: ellipsis; font-family: var(--mono); }
+.pbar-chip-chev { opacity: .55; }
+/* 发送箭头圆钮（InputBar 形态） */
+.pbar-send {
+  width: 26px; height: 26px; border-radius: 50%; border: none; cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-gray); color: var(--text3);
+  transition: background .12s, color .12s;
+}
+.pbar-send:hover { background: var(--bg-blue); color: var(--blue); }
+.pbar-send.on { background: var(--blue); color: var(--on-primary); }
+.pbar-send.on:hover { filter: brightness(1.1); }
+.pbar-send:disabled { opacity: .35; cursor: not-allowed; }
 .pbar-menu {
   position: absolute; left: 0; right: 0; bottom: calc(100% + 6px);
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);

@@ -1,6 +1,6 @@
 // 职责：App —— 三段式布局装配 + hash 路由（#pid=&view=&open=&tab=，契约与原型一致）+ WS 订阅。
 // 数据流：REST 拉取快照 → 本地投影 → WS 事件防抖刷新（按 last_seq 增量追平）；用户动作 POST → 引擎裁决 → 事件回流。
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ThemeProvider, useThemeStore } from './theme/ThemeProvider';
 import { Atmosphere } from './theme/Atmosphere';
 import { Sidebar } from './components/layout/Sidebar';
@@ -71,11 +71,42 @@ function Toolbar({ pid }: { pid: string }) {
     useUi.getState().setRoute({ view: v, openId: null, tab: 'comments', sessionId: null });
     writeHash(pid, v, null, 'comments');
   };
+  // 药丸滑动指示器：测激活按钮位置 → 绝对定位 pill（CSS transition 弹性滑动）
+  const listRef = useRef<HTMLDivElement>(null);
+  const btnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
+  useEffect(() => {
+    const measure = () => {
+      const list = listRef.current;
+      const el = btnRefs.current[view];
+      if (!list || !el) return;
+      const lr = list.getBoundingClientRect();
+      const er = el.getBoundingClientRect();
+      setPill({ left: er.left - lr.left, width: er.width });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (listRef.current) ro.observe(listRef.current);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [view]);
   return (
     <div className="toolbar">
-      <div className="viewswitch">
+      <div className="viewswitch" ref={listRef}>
+        {pill ? (
+          <span
+            className="viewswitch-pill"
+            style={{ left: pill.left, width: pill.width }}
+            aria-hidden="true"
+          />
+        ) : null}
         {VIEW_ITEMS.map((v) => (
-          <button key={v.id} className={'btn' + (view === v.id ? ' active' : '')} onClick={() => setView(v.id)}>
+          <button
+            key={v.id}
+            ref={(el) => { btnRefs.current[v.id] = el; }}
+            className={'btn' + (view === v.id ? ' active' : '')}
+            onClick={() => setView(v.id)}
+          >
             {v.label}
           </button>
         ))}
