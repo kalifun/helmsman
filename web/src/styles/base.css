@@ -1042,7 +1042,7 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 }
 .sd-tab:hover { color: var(--text); background: var(--bg-gray); }
 .sd-tab.active { color: var(--text); background: var(--bg-gray); font-weight: 500; }
-.sd-chat { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); }
+.sd-chat { flex: 1; overflow-y: auto; padding: var(--sp-4) var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-2); background: var(--canvas); }
 .sd-chat .selact { width: 100%; display: flex; flex-direction: column; gap: var(--sp-2); }
 .sd-chat .sess-row { display: flex; gap: 10px; margin-bottom: 2px; align-items: flex-start; }
 .sd-chat .sess-row.user { justify-content: flex-end; }
@@ -1050,7 +1050,7 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
   /* 覆盖 .sess-bub 的 flex:1（flex-grow 会让气泡撑满整行，文字后留大片空白）——
      改为按内容宽度，配合 max-width 上限，短消息气泡紧凑 */
   flex: 0 1 auto; min-width: 0;
-  max-width: 78%; background: var(--surface2); border: 1px solid var(--line);
+  max-width: 78%; background: var(--surface); border: 1px solid var(--line);
   border-radius: 4px 12px 12px 12px; padding: 9px 13px;
   font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
   /* 超长消息（如任务简报/蒸馏输入）限制高度内部滚动，避免气泡占满整屏 */
@@ -1061,12 +1061,12 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .sd-chat .sess-bub.dim { color: var(--text3); font-size: 12.5px; }
 .sd-chat .sess-bub.err { border-color: rgba(159,47,45,.4); color: var(--red); }
 .sd-chat .sess-tool { max-width: 78%; }
-.sd-traj { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: var(--sp-3) var(--sp-4); }
+.sd-traj { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: var(--sp-3) var(--sp-4); background: var(--canvas); }
 .sd-traj .traj-scroll { flex: 1; }
 .sd-input {
-  padding: 14px 24px 22px; border-top: 1px solid var(--line); background: transparent;
+  padding: 14px 24px 22px; border-top: 1px solid var(--line); background: var(--canvas);
   border-radius: 0 0 var(--r-lg) var(--r-lg);
-  /* 输入框悬浮：底部留白（像简单会话 chatpanel-foot），输入框浮在面板内 */
+  /* 输入框悬浮：canvas 底（消息区一致），pbar 白卡浮在浅底上——对比产生悬浮感 */
 }
 .sd-input .pbar { max-width: none; border-radius: var(--r-lg); }
 
