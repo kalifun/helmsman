@@ -126,6 +126,20 @@ export const PromptBar = forwardRef<PromptBarHandle, Props>(function PromptBar({
   const [hl, setHl] = useState<{ top: number; height: number } | null>(null);
   const [listening, setListening] = useState(false);
   const canSpeak = useMemo(() => speechCtor() != null, []);
+  // 模式/模型下拉菜单（当前打开哪个；null = 全关）。引擎不支持会话级切换，
+  // 选项点击只提示"不可切"（防假功能），高亮当前值。
+  const [openMenu, setOpenMenu] = useState<'mode' | 'model' | null>(null);
+  const chipWrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!openMenu) return;
+    const onDoc = (e: MouseEvent) => {
+      if (chipWrapRef.current && !chipWrapRef.current.contains(e.target as Node)) setOpenMenu(null);
+    };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenMenu(null); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc); };
+  }, [openMenu]);
 
   useImperativeHandle(ref, () => ({
     focus: () => taRef.current?.focus(),
@@ -353,16 +367,62 @@ export const PromptBar = forwardRef<PromptBarHandle, Props>(function PromptBar({
         ) : null}
         {actions}
         <span className="pbar-spacer" />
-        {/* 模式 + 模型下拉 chip（InputBar 形态：左侧选择，右侧发送） */}
-        <span className="pbar-chip" title="协作模式">
-          <CursorIcon />
-          <span>{mode}</span>
-          <ChevronIcon />
-        </span>
-        <span className="pbar-chip" title="当前模型">
-          <span className="pbar-chip-model">{model || 'deepseek-v4-flash'}</span>
-          <ChevronIcon />
-        </span>
+        {/* 模式 + 模型下拉 chip（InputBar 形态：点击展开菜单） */}
+        <div className="pbar-chips" ref={chipWrapRef}>
+          <button
+            type="button"
+            className={'pbar-chip' + (openMenu === 'mode' ? ' open' : '')}
+            title="协作模式"
+            onClick={() => setOpenMenu(openMenu === 'mode' ? null : 'mode')}
+          >
+            <CursorIcon />
+            <span>{mode}</span>
+            <ChevronIcon />
+          </button>
+          {openMenu === 'mode' ? (
+            <div className="pbar-dropdown" role="menu">
+              {['Agent', 'Auto', 'Yolo'].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="menuitem"
+                  className={'pbar-dd-item' + (m === mode ? ' cur' : '')}
+                  onClick={() => setOpenMenu(null)}
+                >
+                  <span>{m}</span>
+                  {m === mode ? <span className="pbar-dd-check">✓</span> : null}
+                </button>
+              ))}
+              <div className="pbar-dd-note">模式是建卡时的 Profile 设置（协作方式），会话内不可切换</div>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className={'pbar-chip' + (openMenu === 'model' ? ' open' : '')}
+            title="当前模型"
+            onClick={() => setOpenMenu(openMenu === 'model' ? null : 'model')}
+          >
+            <span className="pbar-chip-model">{model || 'deepseek-v4-flash'}</span>
+            <ChevronIcon />
+          </button>
+          {openMenu === 'model' ? (
+            <div className="pbar-dropdown" role="menu">
+              {['deepseek-v4-flash', 'deepseek-v4-pro'].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="menuitem"
+                  className={'pbar-dd-item' + (m === (model || 'deepseek-v4-flash') ? ' cur' : '')}
+                  onClick={() => setOpenMenu(null)}
+                >
+                  <span>{m}</span>
+                  {(m === (model || 'deepseek-v4-flash')) ? <span className="pbar-dd-check">✓</span> : null}
+                </button>
+              ))}
+              <div className="pbar-dd-note">引擎会话模型固定（新建任务/会话时生效），当前不可切</div>
+            </div>
+          ) : null}
+        </div>
         {/* 语音按钮暂隐藏：浏览器原生语音识别对中文/术语准确率不稳，功能不完善不暴露入口
             （保留代码，未来接入可靠识别后置 true 恢复） */}
         {false && canSpeak ? (
