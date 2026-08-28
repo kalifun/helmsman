@@ -75,8 +75,8 @@ export function TrajectoryView({ task, stream }: Props) {
 
   const running = task.status === 'Running' || (task.waiting !== null && task.waiting !== undefined);
 
-  // 滚动容器高度（虚拟化视口）
-  const viewportH = 320;
+  // 滚动容器高度：自适应填满父容器（.traj-scroll height:100%），不再硬编码 320px
+  // （硬编码导致轨迹只占一半、下方留白）
 
   // 滚动处理：判断是否在底部（锚定尾部）还是用户上滚（暂停跟随）
   const onScroll = () => {
@@ -139,7 +139,7 @@ export function TrajectoryView({ task, stream }: Props) {
   const bottomPad = Math.max(0, (rows.length - range[1]) * ROW_H);
 
   return (
-    <div className="traj-scroll" ref={scrollRef} onScroll={onScroll} style={{ height: viewportH, overflowY: 'auto' }}>
+    <div className="traj-scroll" ref={scrollRef} onScroll={onScroll} style={{ overflowY: 'auto' }}>
       <div className="sess-meta">
         <span className="kv">模型 <b>{task.model || '-'}</b></span>
         <span className="kv">回合 <b>{task.turns ?? 0}</b></span>
