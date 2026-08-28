@@ -137,6 +137,26 @@ export function SessionView({ pid }: { pid: string }) {
     }),
   ].sort((a, b) => a.at - b.at);
 
+  /** 渲染块：连续的 think 合并成一个折叠块（思考过程一条条显示很碎） */
+  const blocks: Array<
+    | { kind: 'user'; text: string }
+    | { kind: 'think'; texts: string[] }
+    | { kind: 'text'; text: string }
+  > = (() => {
+    const out: Array<{ kind: 'user'; text: string } | { kind: 'think'; texts: string[] } | { kind: 'text'; text: string }> = [];
+    for (const r of rows) {
+      if (r.kind === 'user') { out.push({ kind: 'user', text: r.text }); continue; }
+      if (r.kind === 'think') {
+        const last = out[out.length - 1];
+        if (last && last.kind === 'think') last.texts.push(r.text);
+        else out.push({ kind: 'think', texts: [r.text] });
+        continue;
+      }
+      out.push({ kind: 'text', text: r.text });
+    }
+    return out;
+  })();
+
   // 工具调用汇总（ToolStart 与紧随的 ToolResult 配对 → 折叠 chips）
   const toolCalls: ToolChip[] = (() => {
     const out: ToolChip[] = [];
@@ -246,28 +266,28 @@ export function SessionView({ pid }: { pid: string }) {
               <div className="t">新会话</div>
               <div className="d">在下方输入第一条消息即开始（不发消息不会创建会话）。问答与探索不进入看板；聊出眉目可提升为任务，值得记住的存入知识库。</div>
             </div>
-          ) : rows.length === 0 ? (
+          ) : blocks.length === 0 ? (
             <div className="chat-empty">
               <Icon name="chat" className="ic" style={{ width: 26, height: 26, color: 'var(--text3)' }} />
               <div className="t">简单会话</div>
               <div className="d">问答与探索，不进入看板。聊出眉目，可以提升为任务；值得记住的，存入知识库。</div>
             </div>
           ) : (
-            rows.map((m, i) => (
-              <div key={i} className={'chat-turn ' + (m.kind === 'user' ? 'user' : 'agent')}>
-                {m.kind === 'think' ? (
+            blocks.map((b, i) => (
+              <div key={i} className={'chat-turn ' + (b.kind === 'user' ? 'user' : 'agent')}>
+                {b.kind === 'think' ? (
                   <Thinking
-                    rows={[{ id: i, kind: 'think', text: m.text }]}
+                    rows={b.texts.map((text, j) => ({ id: i + '-' + j, kind: 'think', text }))}
                     running={busy || task?.status === 'Running'}
                   />
-                ) : m.kind === 'user' ? (
-                  <div className="chat-user"><Markdown text={m.text} /></div>
+                ) : b.kind === 'user' ? (
+                  <div className="chat-user"><Markdown text={b.text} /></div>
                 ) : (
                   <div className="chat-agent">
-                    <Markdown text={m.text} />
-                    {i === rows.length - 1 && !stream ? (
+                    <Markdown text={b.text} />
+                    {i === blocks.length - 1 && !stream ? (
                       <StreamingText
-                        copyValue={m.text}
+                        copyValue={b.text}
                         onCopy={copyOut}
                         sources={sources}
                         followups={followups}
@@ -280,7 +300,7 @@ export function SessionView({ pid }: { pid: string }) {
           )}
           {toolCalls.length > 0 ? (
             <div className="chat-turn">
-              <ToolChips calls={toolCalls} messages={rows.filter((r) => r.kind === 'text').length} defaultOpen={task?.status === 'Running'} />
+              <ToolChips calls={toolCalls} messages={blocks.filter((b) => b.kind === 'text').length} defaultOpen={task?.status === 'Running'} />
             </div>
           ) : null}
           {stream ? (

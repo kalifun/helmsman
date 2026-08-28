@@ -581,8 +581,23 @@ export const useProjection = create<ProjectionState>((set, get) => ({
         }
       }
     }
+    // 流式正文增量：dsh 实际用 text-chunks 推送（data.texts 逐段），不是 assistant/chunk 的 text-delta。
+    // 只有这一处能拿到"边打字边显示"的效果。
+    if (ev.type === 'text-chunks') {
+      const texts = (ev.data?.texts as string[] | undefined) ?? [];
+      const sid = get().activeSessionId;
+      if (sid && texts.length > 0) {
+        patch.streams = { ...get().streams, [sid]: (get().streams[sid] || '') + texts.join('') };
+      }
+    }
     if (ev.type === 'assistant/message' && ev.data?.usage) {
       const u = ev.data.usage as Usage;
+      // 该消息完整文本已 fold 进 activities → 清流式残留（避免与完整消息重复显示）
+      const doneSid = get().activeSessionId;
+      if (doneSid && get().streams[doneSid]) {
+        patch.streams = { ...get().streams };
+        delete patch.streams[doneSid];
+      }
       if (u.inputTokens || u.outputTokens || u.cacheReadTokens || u.reasoningTokens) {
         const sid = get().activeSessionId;
         if (sid) {
