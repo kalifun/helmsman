@@ -548,7 +548,8 @@ path.g-edge.hl { stroke: var(--blue); stroke-width: 2; }
 /* ---------- 抽屉 ---------- */
 /* 悬浮卡片：不占布局流（fixed），右侧留间距，完整圆角浮在内容上方——不是贴边的列 */
 #drawer {
-  position: fixed; top: 76px; right: 20px; bottom: 20px;
+  position: fixed; top: 76px; right: 20px; bottom: 50px;
+  /* bottom 50px = 状态栏 30px + 间距 20px（fixed 相对视口，否则底部被 statusbar 遮住） */
   width: 440px; max-width: calc(100vw - 40px);
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1015,12 +1016,15 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 
 /* 会话钻入全屏页（SessionDetailView，O7） */
 #sessiondetail {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%;
-  /* 与看板一致的卡片语言：canvas 底上浮起圆角面板，四周留白，不再平铺贴边 */
-  margin: 20px 24px 24px; padding: 0;
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  /* 父容器 stage-main 用 padding 留白（见下），子项 height:100% 在 padding 内，
+     不再用 margin（margin + height:100% 叠加导致底部溢出被状态栏遮住） */
+  height: 100%; padding: 0;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
   box-shadow: var(--shadow-hover); overflow: hidden;
 }
+/* 会话详情所在的 stage-main：padding 留白（仅当子项是 #sessiondetail 时） */
+.stage-main:has(> #sessiondetail) { padding: 20px 24px 24px; }
 .sd-head {
   display: flex; align-items: center; gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line);
