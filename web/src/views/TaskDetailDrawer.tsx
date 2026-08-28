@@ -55,15 +55,28 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
     .map((c) => ({ id: c.id, title: c.title, status: cardStatus(c) }));
 
   // 简报快照（metrics.brief_snapshot，按执行 sid）与卡产物（KB 笔记 source_ref=cardId）
-  const [briefRows, setBriefRows] = useState<Record<string, { brief_snapshot: Array<{ id: string; title: string; score?: number }> }>>({});
+  const [briefRows, setBriefRows] = useState<Record<string, { brief_snapshot: Array<{ id: string; title: string; score?: number }>; usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; reasoningTokens: number } }>>({});
   const [kbNotes, setKbNotes] = useState<KbNoteRow[]>([]);
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
         const m = await getMetrics(pid);
-        const map: Record<string, { brief_snapshot: Array<{ id: string; title: string; score?: number }> }> = {};
-        m.forEach((r) => { if (r.task_id) map[r.task_id] = { brief_snapshot: r.brief_snapshot ?? [] }; });
+        const map: Record<string, { brief_snapshot: Array<{ id: string; title: string; score?: number }>; usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; reasoningTokens: number } }> = {};
+        m.forEach((r) => {
+          if (r.task_id) {
+            map[r.task_id] = {
+              brief_snapshot: r.brief_snapshot ?? [],
+              // metrics 持久化 token 用量：WS 实时 usage 无值（历史会话）时回填成本块
+              usage: {
+                inputTokens: r.in_tokens ?? 0,
+                outputTokens: r.out_tokens ?? 0,
+                cacheReadTokens: r.cache_tokens ?? 0,
+                reasoningTokens: r.reason_tokens ?? 0,
+              },
+            };
+          }
+        });
         if (alive) setBriefRows(map);
       } catch { /* 快照加载失败不影响 */ }
       try {
@@ -234,7 +247,7 @@ export function TaskDetailDrawer({ pid, cardId }: { pid: string; cardId: string 
       );
     }
     return task ? (
-      <TrajectoryView task={task} stream={tab === 'trajectory' ? stream : undefined} />
+      <TrajectoryView task={task} stream={tab === 'trajectory' ? stream : undefined} usageOverride={briefRows[sid]?.usage} />
     ) : null;
   };
 

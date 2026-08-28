@@ -58,11 +58,14 @@ const OVERSCAN = 60;     // 触底加载更多（px）
 interface Props {
   task: TaskState;
   stream?: string;
+  /** 历史 usage 回填（metrics 表，WS 实时 usage 无值时显示成本/预算） */
+  usageOverride?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; reasoningTokens: number };
 }
 
-export function TrajectoryView({ task, stream }: Props) {
+export function TrajectoryView({ task, stream, usageOverride }: Props) {
   const usage = useProjection((s) => s.usage);
-  const execUsage = usage[task.id];
+  const liveUsage = usage[task.id];
+  const execUsage = liveUsage ?? usageOverride;
   const cost = estCost(execUsage, task?.model);
   const hit = cacheHitOf(execUsage);
   const rows = useMemo(() => toRows(task), [task]);
