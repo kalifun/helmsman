@@ -1016,17 +1016,15 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 
 /* 会话钻入全屏页（SessionDetailView，O7） */
 #sessiondetail {
-  /* 悬浮会话卡（与抽屉同语言）：不占满 stage，四周留白居中浮起 */
-  position: fixed; top: 76px; bottom: 50px; left: 50%;
-  transform: translateX(-50%);
-  width: min(720px, calc(100vw - 48px));
-  display: flex; flex-direction: column;
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  /* 父容器 stage-main 用 padding 留白（见下），子项 height:100% 在 padding 内，
+     不再用 margin（margin + height:100% 叠加导致底部溢出被状态栏遮住） */
+  height: 100%; padding: 0;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
-  box-shadow: var(--shadow-float); overflow: hidden;
-  z-index: 30;
+  box-shadow: var(--shadow-hover); overflow: hidden;
 }
-/* 会话详情所在的 stage-main：悬浮后不再需要 padding（fixed 脱离布局流） */
-.stage-main:has(> #sessiondetail) { padding: 0; }
+/* 会话详情所在的 stage-main：padding 留白（仅当子项是 #sessiondetail 时） */
+.stage-main:has(> #sessiondetail) { padding: 20px 24px 24px; }
 .sd-head {
   display: flex; align-items: center; gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line);
@@ -1066,8 +1064,9 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .sd-traj { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: var(--sp-3) var(--sp-4); }
 .sd-traj .traj-scroll { flex: 1; }
 .sd-input {
-  padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--line); background: transparent;
+  padding: 14px 24px 22px; border-top: 1px solid var(--line); background: transparent;
   border-radius: 0 0 var(--r-lg) var(--r-lg);
+  /* 输入框悬浮：底部留白（像简单会话 chatpanel-foot），输入框浮在面板内 */
 }
 .sd-input .pbar { max-width: none; border-radius: var(--r-lg); }
 
