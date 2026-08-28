@@ -194,6 +194,10 @@ export function SessionView({ pid }: { pid: string }) {
     { id: 'promote', label: '提升为任务', onClick: () => setPromoteOpen(true) },
     { id: 'save', label: '存入知识库', onClick: () => void saveKb() },
   ] : undefined;
+  // 流式显示：stream 存在即显示（流式区）。
+  // 生命周期：turn/end 事件清 stream（该轮回复完成，blocks 已回填）；
+  // sendChat 完成后再清一次（双保险）。避免流式区与完整消息重复显示。
+  const showStream = !!stream;
 
   // 会话切换器：历史会话 tabs（最新在前）+ 新会话
   const sortedChats = [...chatList].sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0));
@@ -303,7 +307,7 @@ export function SessionView({ pid }: { pid: string }) {
               <ToolChips calls={toolCalls} messages={blocks.filter((b) => b.kind === 'text').length} defaultOpen={task?.status === 'Running'} />
             </div>
           ) : null}
-          {stream ? (
+          {showStream ? (
             <div className="chat-turn">
               <StreamingText text={stream} streaming markdown sources={sources} onCopy={copyOut} />
             </div>

@@ -258,6 +258,9 @@ export function relTime(ms?: number): string {
 
 export type ConnState = 'online' | 'reconnect' | 'offline';
 
+/** 已完成回复的会话（turn/end 标记）：迟到的 text-chunks 忽略，防流式残留/重复。 */
+const doneTurns = new Set<string>();
+
 interface ProjectionState {
   projects: Record<string, Project>;
   cards: Record<string, Record<string, CardState>>;  // pid → cardId → CardState（1 卡 N 执行）
@@ -400,9 +403,21 @@ export const useProjection = create<ProjectionState>((set, get) => ({
 
   sendChat: async (sid, text) => {
     try {
+      // 显式指定流式归属：WS 的 session 事件只在会话新建时更新 activeSessionId，
+      // 同一会话连续发送会沿用旧值 → 流式拼错会话。发送前钉到当前 sid。
+      set({ activeSessionId: sid });
+      // 新一轮开始：清上一轮的完成标记（该会话的 text-chunks 重新生效）
+      doneTurns.delete(sid);
       await api.sendChat(sid, text);
       set((s) => ({ revision: s.revision + 1 }));
       await get().loadChat(sid);
+      // 流式完成 + REST 回填完成 → 清该会话流式（与 blocks 更新同一 tick，无真空/无重复）
+      set((s) => {
+        if (!s.streams[sid]) return {};
+        const streams = { ...s.streams };
+        delete streams[sid];
+        return { streams };
+      });
       return true;
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
@@ -582,22 +597,30 @@ export const useProjection = create<ProjectionState>((set, get) => ({
       }
     }
     // 流式正文增量：dsh 实际用 text-chunks 推送（data.texts 逐段），不是 assistant/chunk 的 text-delta。
-    // 只有这一处能拿到"边打字边显示"的效果。
+    // 只有这一处能拿到"边打字边显示"的效果。已完成回复的会话（turn/end 后）忽略迟到 chunk。
     if (ev.type === 'text-chunks') {
       const texts = (ev.data?.texts as string[] | undefined) ?? [];
       const sid = get().activeSessionId;
-      if (sid && texts.length > 0) {
+      if (sid && texts.length > 0 && !doneTurns.has(sid)) {
         patch.streams = { ...get().streams, [sid]: (get().streams[sid] || '') + texts.join('') };
+      }
+    }
+    // turn/end = 该轮回复完成（服务端 fold 已落完整消息）→ 标记 + 清流式，
+    // 后续迟到的 chunk 不再拼（防流式残留与 blocks 完整消息重复显示）。
+    if (ev.type === 'turn/end') {
+      const sid = get().activeSessionId;
+      if (sid) {
+        doneTurns.add(sid);
+        if (get().streams[sid]) {
+          patch.streams = { ...get().streams };
+          delete patch.streams[sid];
+        }
       }
     }
     if (ev.type === 'assistant/message' && ev.data?.usage) {
       const u = ev.data.usage as Usage;
-      // 该消息完整文本已 fold 进 activities → 清流式残留（避免与完整消息重复显示）
-      const doneSid = get().activeSessionId;
-      if (doneSid && get().streams[doneSid]) {
-        patch.streams = { ...get().streams };
-        delete patch.streams[doneSid];
-      }
+      // 注意：不在 assistant/message 清流式（结束瞬间会闪）——
+      // 由 SessionView 的 showStream 相等判断接管：REST 回填完整消息后流式自然让位。
       if (u.inputTokens || u.outputTokens || u.cacheReadTokens || u.reasoningTokens) {
         const sid = get().activeSessionId;
         if (sid) {
