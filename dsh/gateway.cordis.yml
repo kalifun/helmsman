@@ -1,0 +1,169 @@
+# helmsman — dsh 引擎组合（粒度 spine + ACP 控制通道）
+# 观察通道：JSONL 会话日志（.sessions/）tail —— model-visible ⟺ logged 是权威事件源。
+# 无 session-query：架构决策（见 architecture-v1.md §2.1），不引入演示 bundle 的派生索引。
+
+# 用户设置（$DSH_HOME/settings.yaml，热重载）
+- id: settings
+  name: '@deepseek-ai/dsh-settings-file'
+
+# 凭据存储：进程环境 over $DSH_HOME/.credentials.yaml；DEEPSEEK_API_KEY 在此解析，不内联。
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: enabled
+    reasoningEffort: max
+    models:
+      - id: deepseek-v4-flash
+        contextWindow: 128000
+      - id: deepseek-v4-pro
+        contextWindow: 128000
+
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+- id: bash
+  name: '@deepseek-ai/dsh-bash-local'
+  config:
+    timeoutMs: 60000
+
+# Spine bundle：不预建 agent（ACP 每个 session/new 建一个）；persona 即 helmsman 身份。
+- id: agent-spine
+  name: '@deepseek-ai/dsh-agent-spine-demo'
+  config:
+    agents: []
+    workspaceContext:
+      maxBytes: 65536
+    persona: |
+      You are Helmsman, a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+
+      You execute one task per session; the task brief arrives as the first user message and is authoritative. Verify your work by running code or tests. Keep answers brief and factual. When a task depends on project knowledge you lack, say so instead of guessing.
+
+# JSONL 会话日志：观察通道的数据源（Rust 侧 tail）。
+- id: persistence
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js "process.env.HELMSMAN_SESSIONS_ROOT ?? './.sessions'"
+    compression: !!js "process.env.HELMSMAN_COMPRESSION ?? 'none'"
+
+- id: checkpoint-policy
+  name: '@deepseek-ai/dsh-session-checkpoint-policy'
+
+- id: token-meter
+  name: '@deepseek-ai/dsh-token-meter'
+
+- id: compact-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.8
+    retainRatio: 0.16
+    maxTokens: 8192
+    compactionRetries: 1
+
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: subagent
+  name: '@deepseek-ai/dsh-subagent'
+
+- id: subagent-spawn
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+  config:
+    providerName: spawn
+
+- id: subagent-fork
+  name: '@deepseek-ai/dsh-subagent-fork-in-process'
+  config:
+    providerName: fork
+
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+
+- id: tool-subagent-report
+  name: '@deepseek-ai/dsh-tool-subagent-report'
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: continuable
+    maxDepth: 1
+
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fork
+    toolName: subagent_fork
+    backgroundMode: continuable
+    maxDepth: 1
+
+- id: workflow-workerthread
+  name: '@deepseek-ai/dsh-workflow-worker-thread'
+  config:
+    provider: spawn
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
+
+- id: tool-ralph
+  name: '@deepseek-ai/dsh-tool-ralph'
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  config:
+    allowParallelInProgress: true
+
+# 每项目沙箱：workspace-write —— 每个任务（会话）的写根 = 会话 cwd（用户选择的项目目录），
+# 只能写自己的项目目录 + /tmp，不能越界写其他项目或系统任意位置（spec：任务以项目为隔离单位）。
+# 公开版（0.1.0-rc.7）：fs-sandbox 直接替代 fs-local（不再并存），配套 ctx.sandboxPolicy。
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: workspace-write
+
+- id: fs-sandbox
+  name: '@deepseek-ai/dsh-fs-sandbox'
+  config:
+    cwd: !!js "process.env.HELMSMAN_WORKSPACE ?? process.cwd()"
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+
+# 命令级白名单（P1）：工具审批缝 —— guard 预设命中危险命令返回 ask 时，
+# 经 approval/request waterfall 路由到 dsh-acp 桥 → ACP requestPermission → Helmsman 批复队列。
+# 缺 answerer 时 fail-closed（拒绝命令，不静默放行）。
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: ask
+
+
+# 预设 roster（P0 预设落地）：每任务可按 _meta.agentPreset 挂不同工具/人格。
+# 根目录 = 本仓库预设（system）+ ~/.dsh/.agent-presets（user，自动附加）。
+- id: agent-presets
+  name: '@deepseek-ai/dsh-agent-presets'
+  config:
+    # default: 引擎 preset 仅作可选工具集定制（Profile 主路径由产品服务解析三轴，不传 presetId 时不 mount）；
+    # schema 要求 default 必填，占位为 code-concise（无害：产品服务不传即不生效）。
+    default: code-concise
+    roots:
+      - path: !!js "process.cwd() + '/agent-presets'"
+        trust: system
+
+# ACP 控制通道（stdin/stdout）：Rust 产品服务的控制面。
+# 选中模型 → installModelSelection 挂 agent 请求路由（下一轮生效）。
+- id: model-select
+  name: ./model-select.js
+# D3-1 网关：引擎进程内 HTTP 服务（复用官方 webserver）
+- id: webserver
+  name: '@deepseek-ai/dsh-host-webserver'
+  config:
+    host: 127.0.0.1
+    port: 3082
+
+- id: helmsman-gateway
+  name: ./helmsman-gateway.js
