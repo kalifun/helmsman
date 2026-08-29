@@ -5,6 +5,7 @@
 export const name = 'helmsman-board'
 export const inject = ['sessions', 'webServer']
 
+import { WebSocketServer } from 'ws'
 import {
   newProjection,
   ensureProject,
@@ -40,6 +41,55 @@ export function apply(ctx) {
     sessions: () => proj.sessionProject,
   })
 
+  // ---------- /api/events：实时事件推送（WS + SSE）→ 前端投影 store ----------
+  // 前端期望 {type, seq, time, data}（session/event 原生形状）。WS 优先，SSE 兜底。
+  // WS 用官方同款 ws 库（WebSocketServer noServer + handleUpgrade），不手写帧。
+  const wss = new WebSocketServer({ noServer: true })
+  const sseClients = new Set() // ServerResponse 集合（SSE 流）
+
+  // 转发：session/event → 所有 WS/SSE 客户端（附加 session id 供前端路由）
+  const forwardEvent = (session, event) => {
+    const frame = { ...event, id: session?.id }
+    const data = JSON.stringify(frame)
+    for (const client of wss.clients) {
+      if (client.readyState === 1) {
+        try { client.send(data) } catch { /* 忽略坏连接 */ }
+      }
+    }
+    for (const res of sseClients) {
+      try { res.write(`data: ${data}\n\n`) } catch { sseClients.delete(res) }
+    }
+  }
+
+  // WS 升级：/api/events（官方模式：mux.handleUpgrade）
+  webServer.registerUpgrade({
+    path: '/api/events',
+    handler: (req, socket, head) => {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req)
+      })
+    },
+  })
+
+  // SSE 兜底：GET /api/events
+  webServer.register({
+    kind: 'exact',
+    path: '/api/events',
+    handler: (req, res) => {
+      if (req.method !== 'GET') {
+        res.writeHead(405); return res.end()
+      }
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      })
+      res.write(': connected\n\n')
+      sseClients.add(res)
+      req.on('close', () => sseClients.delete(res))
+    },
+  })
+
   // 观察统计路由（D3-3 遗留，保留作探活）
   webServer.register({
     kind: 'exact',
@@ -52,6 +102,12 @@ export function apply(ctx) {
         cards: Object.values(proj.projects).reduce((n, p) => n + Object.keys(p.cards).length, 0),
       }))
     },
+  })
+
+  // 在 session/event 监听里转发（与 fold 同源）
+  ctx.on('session/event', (session, event) => {
+    if (!session?.id || !event) return
+    forwardEvent(session, event)
   })
 
   console.log('[helmsman-board] 投影持有者就绪，session/event 实时折叠中')
