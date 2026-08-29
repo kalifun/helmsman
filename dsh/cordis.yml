@@ -154,14 +154,37 @@
       - path: !!js "process.cwd() + '/agent-presets'"
         trust: system
 
-# ACP 控制通道（stdin/stdout）：Rust 产品服务的控制面。
-- id: acp
-  name: '@deepseek-ai/dsh-acp'
-  config:
-    provider: deepseek-official
-    model: deepseek-v4-flash
-
 # [helmsman] 会话内切模型（引擎生态内插件）：agent/inbox/claimed 时读共享文件
 # 选中模型 → installModelSelection 挂 agent 请求路由（下一轮生效）。
 - id: model-select
   name: ./model-select.js
+
+# ── 插件化迁移：引擎进程内 HTTP 网关 + Helmsman 业务插件（零 ACP 补丁）──
+# v1 的 server-ts（独立进程 + ACP 客户端）已逐步迁入引擎进程，见 docs/plugin-migration.md。
+
+# HTTP 网关：引擎进程内 HTTP/WS 服务（所有 /api 路由的挂载点）。
+- id: webserver
+  name: '@deepseek-ai/dsh-host-webserver'
+  config:
+    host: 127.0.0.1
+    port: 3081
+
+# 任务编排：建任务（agents.create）/评论驱动（followup）/状态（session log 投影）。
+- id: helmsman-tasks
+  name: ./helmsman-tasks.js
+
+# 审批通道：approval/request waterfall answerer（guard 拦截 → 队列 → HTTP 批复）。
+- id: helmsman-approval
+  name: ./helmsman-approval.js
+
+# 观察投影：session/event 实时事件流（替代 tail JSONL 轮询）。
+- id: helmsman-board
+  name: ./helmsman-board.js
+
+# 知识库：沉淀/检索/提炼（distill 引擎内 agents 直接驱动）。
+- id: helmsman-kb
+  name: ./helmsman-kb.js
+
+# 任务级 worktree 隔离：prepare/merge/discard。
+- id: helmsman-worktree
+  name: ./helmsman-worktree.js
