@@ -108,6 +108,12 @@ function discardTaskWorktree(repo, worktree) {
 
 export function apply(ctx) {
   const { webServer } = ctx
+  // 内部服务：供 helmsman-tasks 建任务时自动隔离
+  ctx.provide('helmsmanWorktree', {
+    prepare: (repo, cardId, key) => prepareTaskWorktree(repo, cardId, key),
+    discard: (repo, worktree) => discardTaskWorktree(repo, worktree),
+    merge: (input) => mergeTaskWorktree(input),
+  })
   const json = (res, code, body) => {
     res.writeHead(code, { 'content-type': 'application/json' })
     res.end(JSON.stringify(body))

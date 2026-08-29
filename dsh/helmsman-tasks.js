@@ -9,23 +9,40 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'helmsman-tasks'
-export const inject = ['agents', 'sessions', 'agentPresets', 'helmsmanBoard', 'helmsmanStorage']
+export const inject = ['agents', 'sessions', 'agentPresets', 'helmsmanBoard', 'helmsmanStorage', 'helmsmanWorktree']
 
 export function apply(ctx) {
   const { agents, sessions } = ctx
   const board = ctx.get('helmsmanBoard')
   const storage = ctx.get('helmsmanStorage')?.storage
+  const worktree = ctx.get('helmsmanWorktree')
 
   ctx.provide('helmsmanTasks', {
-    /** 建任务：引擎内 agents.create + 首条指令。返回 {sid}。 */
+    /** 建任务：引擎内 agents.create + 首条指令。git 仓库自动建 worktree 隔离。返回 {sid, isolated}。 */
     async createTask({ cwd, brief, preset, project_id, card_id }) {
       const sid = SessionId(`task-${randomUUID().slice(0, 12)}`)
+      const pid = project_id ?? 'default'
+      // 任务级隔离：git 仓库 → worktree（agent 在隔离区跑，不写主工作区）；非 git/失败回退项目目录
+      let runCwd = cwd
+      let worktreeInfo = null
+      let isolated = false
+      if (worktree && card_id) {
+        const wt = worktree.prepare(cwd, card_id, sid.slice(0, 8))
+        if (wt) {
+          runCwd = wt.path
+          worktreeInfo = wt
+        } else {
+          isolated = true // M5：隔离区不可用 → 可见标记（前端提示"共享目录运行"）
+        }
+      }
       // 先注册投影，再创建 agent：session/event 在 create 后立刻开始，注册必须先行
       if (board && (project_id || card_id)) {
-        const pid = project_id ?? 'default'
         if (card_id) {
           const card = board.projection.projects?.[pid]?.cards?.[card_id]
-          if (!card) throw new Error(`card '${card_id}' not in project '${pid}'`)
+          if (!card) {
+            if (worktreeInfo) worktree.discard(cwd, worktreeInfo)
+            throw new Error(`card '${card_id}' not in project '${pid}'`)
+          }
         }
         board.registerSession(sid, pid, card_id ?? '')
         // 执行快照落盘（重启后 session→卡 映射恢复的权威来源）
@@ -36,10 +53,16 @@ export function apply(ctx) {
             forked_from: null, started_at: null, finished_at: null, created_at: created,
           })
         }
+        // 执行的工作区信息写入投影（前端展示隔离状态）
+        const t = board.projection.projects?.[pid]?.cards?.[card_id]?.executions?.[sid]
+        if (t) {
+          t.worktree = worktreeInfo
+          t.isolated = isolated
+        }
       }
       const { agent } = await agents.create({
         sessionId: sid,
-        meta: { cwd },
+        meta: { cwd: runCwd },
         agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
         // 任务级装配：preset 挂载（patch 3 的原生替代）+ model selection 接点
         setup: async (agentCtx) => {
@@ -53,8 +76,8 @@ export function apply(ctx) {
         content: [{ type: 'text', text: brief }],
         source: { kind: 'user' },
       }))
-      console.log(`[helmsman-tasks] created ${sid} cwd=${cwd} project=${project_id ?? '-'} card=${card_id ?? '-'}`)
-      return { sid }
+      console.log(`[helmsman-tasks] created ${sid} cwd=${runCwd} project=${pid ?? '-'} card=${card_id ?? '-'}${isolated ? ' (ISOLATION FAILED)' : ''}`)
+      return { sid, isolated, worktree: worktreeInfo }
     },
 
     /** 取消：引擎内 agent.cancel（替代 v1 的 ACP session/cancel）。 */
