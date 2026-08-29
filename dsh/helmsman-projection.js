@@ -187,7 +187,22 @@ export function foldTask(t, ev) {
       break
     }
     case 'assistant/chunk': {
-      // text-delta 是流式增量碎片；存活动只取 text-chunks（追加合并），chunk 仅作流式信号
+      // 实时流无 text-chunks（那是 JSONL 存储编码）；完整文本在 block-end 的 block 里。
+      // 引擎内实时投影从这里累积 Text/Reasoning 活动。
+      const chunk = data?.chunk
+      if (chunk?.type === 'block-end' && chunk.block && typeof chunk.block.text === 'string') {
+        const blockText = chunk.block.text
+        if (chunk.block.type === 'text') {
+          const last = t.activities[t.activities.length - 1]
+          if (last && 'Text' in last && last.Text.turn === t.current_turn) {
+            last.Text.text += blockText
+          } else {
+            pushActivity(t, { Text: { text: blockText, at: time, turn: t.current_turn } })
+          }
+        } else if (chunk.block.type === 'reasoning') {
+          pushActivity(t, { Reasoning: { text: blockText, at: time, turn: t.current_turn } })
+        }
+      }
       break
     }
     case 'text-chunks':
