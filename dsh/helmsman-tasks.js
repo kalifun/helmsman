@@ -9,11 +9,12 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'helmsman-tasks'
-export const inject = ['agents', 'sessions', 'agentPresets', 'helmsmanBoard']
+export const inject = ['agents', 'sessions', 'agentPresets', 'helmsmanBoard', 'helmsmanStorage']
 
 export function apply(ctx) {
   const { agents, sessions } = ctx
   const board = ctx.get('helmsmanBoard')
+  const storage = ctx.get('helmsmanStorage')?.storage
 
   ctx.provide('helmsmanTasks', {
     /** 建任务：引擎内 agents.create + 首条指令。返回 {sid}。 */
@@ -27,6 +28,14 @@ export function apply(ctx) {
           if (!card) throw new Error(`card '${card_id}' not in project '${pid}'`)
         }
         board.registerSession(sid, pid, card_id ?? '')
+        // 执行快照落盘（重启后 session→卡 映射恢复的权威来源）
+        if (storage && card_id) {
+          const created = Date.now()
+          storage.upsertExecution({
+            id: sid, card_id, status: 'Pending', preset_json: '{}', deps_json: '[]',
+            forked_from: null, started_at: null, finished_at: null, created_at: created,
+          })
+        }
       }
       const { agent } = await agents.create({
         sessionId: sid,

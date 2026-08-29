@@ -17,12 +17,13 @@ import { join, dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
 
 export const name = 'helmsman-api'
-export const inject = ['webServer', 'helmsmanBoard', 'helmsmanTasks']
+export const inject = ['webServer', 'helmsmanBoard', 'helmsmanTasks', 'helmsmanStorage']
 
 export function apply(ctx) {
   const { webServer } = ctx
   const board = ctx.get('helmsmanBoard')
   const tasks = ctx.get('helmsmanTasks')
+  const storage = ctx.get('helmsmanStorage')?.storage
   const json = (res, code, body) => {
     res.writeHead(code, { 'content-type': 'application/json' })
     res.end(JSON.stringify(body))
@@ -93,6 +94,7 @@ export function apply(ctx) {
             if (!body.name || !body.path) return json(res, 400, { error: 'name and path required' })
             const pid = body.id ?? `p-${Date.now().toString(36)}`
             board.ensureProject(pid, body.name, body.path)
+            if (storage) storage.upsertProject(pid, body.name, body.path, '{}')
             json(res, 201, { id: pid })
           } catch (e) {
             json(res, 500, { error: e?.message ?? String(e) })
@@ -123,7 +125,14 @@ export function apply(ctx) {
           const body = await readBody(req)
           const mode = body.mode === 'purge' ? 'purge' : 'archive'
           board.removeProject(pid)
-          // 归档/清除会话目录（简化：仅移除投影；会话日志目录由外部管理）
+          if (storage) {
+            if (mode === 'purge') {
+              storage.purgeProject(pid)
+              storage.markDeleted(pid)
+            } else {
+              storage.archiveProject(pid)
+            }
+          }
           console.log(`[helmsman-api] project ${pid} removed (${mode}) path=${p.path}`)
           return json(res, 200, { ok: true, mode, sessions: 0 })
         } catch (e) {
@@ -165,6 +174,7 @@ export function apply(ctx) {
           const p = getProject(decodeURIComponent(cards[1]))
           if (!p) return json(res, 404, { error: 'project not found' })
           const cardId = body.id ?? `c-${Date.now().toString(36)}`
+          const created = Date.now()
           board.ensureCard(p.id, {
             id: cardId,
             title: body.title ?? '(无题)',
@@ -173,7 +183,13 @@ export function apply(ctx) {
             milestone: body.milestone ?? null,
             criteria: body.criteria ?? null,
             deps: body.deps ?? [],
-            created_at: Date.now(),
+            created_at: created,
+          })
+          if (storage) storage.upsertCard({
+            id: cardId, project_id: p.id, title: body.title ?? '(无题)',
+            description: body.description ?? '', kind: body.kind ?? 'task',
+            milestone: body.milestone ?? null, criteria: body.criteria ?? null,
+            deps: body.deps ?? [], budget: body.budget ?? null, created_at: created,
           })
           return json(res, 201, { card_id: cardId })
         } catch (e) {

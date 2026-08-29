@@ -189,6 +189,10 @@
 - id: helmsman-board
   name: ./helmsman-board.js
 
+# 持久化：SQLite 元数据（项目/卡/设置/KB/Profile/策略）+ 启动投影重建（JSONL 重放）。
+- id: helmsman-persist
+  name: ./helmsman-persist.js
+
 # 业务 API：projects/cards/chats 路由（读投影，兼容前端契约）。
 - id: helmsman-api
   name: ./helmsman-api.js

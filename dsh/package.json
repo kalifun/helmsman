@@ -78,6 +78,7 @@
     "@deepseek-ai/dsh-user-approval": "0.1.1-rc.2",
     "@deepseek-ai/dsh-workflow": "0.1.1-rc.2",
     "@deepseek-ai/dsh-workflow-worker-thread": "0.1.1-rc.2",
+    "better-sqlite3": "^11.10.0",
     "ws": "^8.21.3"
   }
 }

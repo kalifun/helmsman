@@ -1,5 +1,6 @@
 allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
+  better-sqlite3: true
   koffi: true
   node-pty: true
 minimumReleaseAgeExclude:
