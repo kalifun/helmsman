@@ -206,30 +206,76 @@ export function apply(ctx) {
     },
   })
 
-  // POST /api/kb/notes —— 人工沉淀
+  // /api/kb/notes —— GET 列表（前端契约）+ POST 人工沉淀
   webServer.register({
     kind: 'exact',
     path: '/api/kb/notes',
     handler: async (req, res) => {
-      if (req.method !== 'POST') return json(res, 405, { error: 'method not allowed' })
-      try {
-        const body = await readBody(req)
-        const note = makeNote({
-          projectId: body.project_id ?? 'default',
-          title: body.title ?? '(无题)',
-          content: body.content ?? [],
-          tags: body.tags ?? [],
-          keywords: body.keywords ?? [],
-          summary: body.summary ?? '',
-          sourceKind: body.source_kind ?? 'human',
-          sourceRef: body.source_ref ?? '',
-          trust: body.trust ?? 'human-approved',
-        })
-        notes.push(note)
-        json(res, 201, { note })
-      } catch (e) {
-        json(res, 500, { error: e?.message ?? String(e) })
+      if (req.method === 'GET') {
+        const url = new URL(req.url ?? '', 'http://localhost')
+        const project = url.searchParams.get('project')
+        const list = project ? notes.filter((n) => n.project_id === project) : notes
+        // 有效笔记优先（未失效），按创建时间倒序
+        list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+        return json(res, 200, list)
       }
+      if (req.method === 'POST') {
+        try {
+          const body = await readBody(req)
+          const note = makeNote({
+            projectId: body.project_id ?? 'default',
+            title: body.title ?? '(无题)',
+            content: body.content ?? [],
+            tags: body.tags ?? [],
+            keywords: body.keywords ?? [],
+            summary: body.summary ?? '',
+            sourceKind: body.source_kind ?? 'human',
+            sourceRef: body.source_ref ?? '',
+            trust: body.trust ?? 'human-approved',
+          })
+          notes.push(note)
+          return json(res, 201, { note })
+        } catch (e) {
+          return json(res, 500, { error: e?.message ?? String(e) })
+        }
+      }
+      return json(res, 405, { error: 'method not allowed' })
+    },
+  })
+
+  // POST /api/kb/notes/:id/invalidate —— 失效笔记
+  webServer.register({
+    kind: 'prefix',
+    path: '/api/kb/notes',
+    handler: (req, res) => {
+      const pathname = (req.url ?? '').split('?')[0]
+      const inv = pathname.match(/^\/api\/kb\/notes\/([^/]+)\/invalidate$/)
+      if (inv && req.method === 'POST') {
+        const n = notes.find((x) => x.id === inv[1])
+        if (!n) return json(res, 404, { error: 'note not found' })
+        n.validUntil = Date.now()
+        n.invalidatedBy = 'manual'
+        return json(res, 200, { ok: true })
+      }
+      // POST /api/kb/notes/:id/stable —— 钉进/移出稳定前缀
+      const stable = pathname.match(/^\/api\/kb\/notes\/([^/]+)\/stable$/)
+      if (stable && req.method === 'POST') {
+        return (async () => {
+          try {
+            const body = await readBody(req)
+            const n = notes.find((x) => x.id === stable[1])
+            if (!n) return json(res, 404, { error: 'note not found' })
+            const pinned = body.pinned === true
+            n.tags = n.tags ?? []
+            if (pinned && !n.tags.includes('stable')) n.tags.push('stable')
+            if (!pinned) n.tags = n.tags.filter((t) => t !== 'stable')
+            return json(res, 200, n)
+          } catch (e) {
+            return json(res, 500, { error: e?.message ?? String(e) })
+          }
+        })()
+      }
+      return json(res, 404, { error: 'not found' })
     },
   })
 

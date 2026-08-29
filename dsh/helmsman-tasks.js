@@ -48,6 +48,14 @@ export function apply(ctx) {
       return { sid }
     },
 
+    /** 取消：引擎内 agent.cancel（替代 v1 的 ACP session/cancel）。 */
+    cancelTask(sid) {
+      const agent = agents.get(SessionId(sid))
+      if (!agent) return false
+      agent.cancel('user-cancelled')
+      return true
+    },
+
     /** 评论 = 控制通道：followup 驱动 agent。 */
     sendComment(sid, text) {
       const agent = agents.get(SessionId(sid))
