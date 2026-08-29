@@ -1,32 +1,60 @@
-// [helmsman] D3-3 观察迁入（轻量验证）：引擎实时事件流 vs JSONL tail。
-// 验证前提：ctx.on('session/event') 能实时收到与 JSONL 持久化一致的事件，
-// 且字段（type/seq/time/data）与 server-ts projection.foldTask 期望完全兼容。
-// 说明：这版只验证事件流可达性 + 字段形状，不搬投影逻辑（D3-3 完整版再搬）。
+// [helmsman] 观察投影插件：session/event 实时事件流 → 看板投影（投影持有者）。
+// 持有 Projection（helmsman-projection 纯函数），监听引擎 session/event 折叠。
+// 提供内部服务：registerSession / getProjection（供 tasks/api 插件使用，经 ctx.provide）。
+// 替代 v1 的 tail.ts（轮询 JSONL）+ recovery.ts（启动重放）+ index.ts 的投影持有。
 export const name = 'helmsman-board'
 export const inject = ['sessions', 'webServer']
 
+import {
+  newProjection,
+  ensureProject,
+  ensureCard,
+  registerSession,
+  foldSession,
+  foldTask,
+  removeProject,
+} from './helmsman-projection.js'
+
 export function apply(ctx) {
   const { webServer } = ctx
-  let count = 0
-  const seen = new Map() // 事件类型 → 次数
+  const proj = newProjection()
 
+  // 实时折叠：session/event → foldSession（与 v1 tailer → foldTask 等价，但实时、无轮询）
   ctx.on('session/event', (session, event) => {
-    count += 1
-    const ty = event?.type ?? '?'
-    seen.set(ty, (seen.get(ty) ?? 0) + 1)
+    if (!session?.id || !event) return
+    // 会话已注册（sessionProject 有映射）才 fold；未注册的会话（如 distill 内部会话）忽略
+    if (proj.sessionProject[session.id] !== undefined) {
+      foldSession(proj, session.id, event)
+    }
   })
 
-  // 提供一个查询路由：事件流统计（验证路由层也能读到投影）
+  // 提供给其他插件的内部服务（helmsman-api / helmsman-tasks 经 ctx.get('helmsmanBoard') 使用）
+  ctx.provide('helmsmanBoard', {
+    get projection() { return proj },
+    ensureProject: (id, name, path) => ensureProject(proj, id, name, path),
+    ensureCard: (projectId, meta) => ensureCard(proj, projectId, meta),
+    registerSession: (sessionId, projectId, cardId) => registerSession(proj, sessionId, projectId, cardId),
+    fold: (sessionId, ev) => foldSession(proj, sessionId, ev),
+    foldTask: (t, ev) => foldTask(t, ev),
+    removeProject: (projectId) => removeProject(proj, projectId),
+    sessions: () => proj.sessionProject,
+  })
+
+  // 观察统计路由（D3-3 遗留，保留作探活）
   webServer.register({
     kind: 'exact',
     path: '/api/board/stats',
     handler: (_req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ total: count, byType: Object.fromEntries(seen) }))
+      res.end(JSON.stringify({
+        projects: Object.keys(proj.projects).length,
+        sessions: Object.keys(proj.sessionProject).length,
+        cards: Object.values(proj.projects).reduce((n, p) => n + Object.keys(p.cards).length, 0),
+      }))
     },
   })
 
-  console.log('[helmsman-board] 观察路由已注册：/api/board/stats')
+  console.log('[helmsman-board] 投影持有者就绪，session/event 实时折叠中')
 }
 
 export default { name, inject, apply }

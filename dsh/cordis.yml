@@ -177,10 +177,6 @@
 - id: helmsman-approval
   name: ./helmsman-approval.js
 
-# 观察投影：session/event 实时事件流（替代 tail JSONL 轮询）。
-- id: helmsman-board
-  name: ./helmsman-board.js
-
 # 知识库：沉淀/检索/提炼（distill 引擎内 agents 直接驱动）。
 - id: helmsman-kb
   name: ./helmsman-kb.js
@@ -188,3 +184,11 @@
 # 任务级 worktree 隔离：prepare/merge/discard。
 - id: helmsman-worktree
   name: ./helmsman-worktree.js
+
+# 观察投影（投影持有者）：session/event 实时折叠 → 看板状态。
+- id: helmsman-board
+  name: ./helmsman-board.js
+
+# 业务 API：projects/cards/chats 路由（读投影，兼容前端契约）。
+- id: helmsman-api
+  name: ./helmsman-api.js
