@@ -31,40 +31,46 @@ Helmsman 是一个本地优先、自托管的编码代理工作台：把"和 age
 
 ### 启动
 
+Helmsman 是**引擎插件形态**（与官方 dsh web 同构）：业务逻辑全部作为插件跑在
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 引擎进程内，
+单进程提供 API + 实时事件流。前端经 Vite proxy 直连引擎。
+
 ```bash
-# 1. 引擎依赖（dsh/）—— 含 ACP 补丁（每任务预设透传）
-cd dsh && pnpm install && pnpm patch
+# 1. 引擎（dsh/）—— 单进程，内含全部 Helmsman 业务插件
+cd dsh && pnpm install
+node launcher.mjs cordis.yml                        # → http://127.0.0.1:3081
 
-# 2. 产品服务（server-ts/）
-cd server-ts && pnpm install && pnpm start     # → http://127.0.0.1:3081
-
-# 3. 前端（web/）
-cd web && pnpm install && pnpm dev             # → http://127.0.0.1:5173
+# 2. 前端（web/）
+cd web && pnpm install && pnpm dev                  # → http://127.0.0.1:5173
 ```
 
 浏览器打开 http://127.0.0.1:5173 → 注册项目目录 → 建卡 → 看板/批复/知识库。
+（Vite proxy 把 `/api` 与 `/api/events` 代理到 3081 —— 引擎即服务器，无独立产品服务进程。）
 
 ### 测试
 
 ```bash
-cd server-ts && pnpm test    # 136 个 vitest 用例
+# 引擎插件链路验证（各插件自带 cordis 组合验证脚本，见 dsh/*.cordis.yml）
 ```
 
 ## 🏗 技术栈
 
 | 层 | 技术 |
 |---|---|
-| 产品服务 | TypeScript · Node · better-sqlite3（单文件 SQLite）|
-| 引擎 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh，Node 子进程，ACP 控制 + JSONL 观察）|
+| 引擎 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh，引擎插件形态：HTTP 网关 + 编排 + 投影 + 审批 + 知识库 + worktree 全在引擎进程内）|
+| 引擎插件 | JavaScript（ESM）· cordis 组合 · 官方 dsh-host-webserver / dsh-agent-presets / dsh-user-approval |
 | 前端 | React 18 · Vite · zustand |
-| 测试 | vitest |
 
 ## 📁 布局
 
 ```
-server-ts/   TS 产品服务（HTTP/WS + 投影 + 批复队列 + 知识库 + 装配 + 实验）
-dsh/         dsh 引擎组合（cordis.yml + agent-presets + ACP 补丁）
-web/         React 前端
+dsh/         dsh 引擎组合 + Helmsman 业务插件（helmsman-api/tasks/board/approval/kb/worktree/model-select）
+  ├─ cordis.yml            主组合（引擎进程 = 全部服务）
+  ├─ helmsman-*.js         业务插件（API/编排/投影/审批/知识库/隔离/切模型）
+  ├─ agent-presets/        guard 等任务级预设（工具/人格）
+  └─ *.cordis.yml          各插件的独立验证组合
+web/         React 前端（经 Vite proxy 直连引擎 3081）
+server-ts/   v1 独立产品服务（已停用：被引擎插件替代，保留作参考实现；见 archive/v1-acp-client 分支）
 ```
 
 ## 🗺 路线图
@@ -85,6 +91,17 @@ web/         React 前端
 - [x] P2·并发互斥（git worktree 隔离 + 同时任务上限，根治共享工作区写冲突；原"写冲突检测"条目由本项取代）
 - [x] P2·换装皮肤系统（theme.json token 覆盖 + theme.css 彻底变装 + 背景，导入/导出/持久化）
 - [ ] P2·桌面壳（Tauri v2 sidecar —— 分发层，排在核心闭环稳定 + 命令级白名单之后；触发信号：觉得"终端两条命令 + 浏览器"烦了、或要让不熟悉 dsh 的人用）
+
+**架构演进（引擎插件化）**：
+- [x] 迁移决策：独立 ACP 客户端 → 引擎生态插件形态（v1 归档于 `archive/v1-acp-client` 分支 + `v1-acp-client` tag）
+- [x] D3-1 网关先行：引擎进程内 HTTP 服务（官方 dsh-host-webserver）
+- [x] D3-2 编排迁入：agents.create/followup 任务驱动（零 ACP 补丁）
+- [x] D3-3 观察迁入：session/event 实时事件流（替代 JSONL tail 轮询）
+- [x] D3-4 业务插件化：审批（approval answerer）/ 知识库（引擎内 distill）/ worktree 隔离
+- [x] D3-5a 引擎侧清理：删 ACP 补丁 ×3，主组合合并业务插件
+- [x] B1 API 面补齐：28 端点全验收（projects/cards/tasks/chats/approvals/kb/metrics/experiments/fs/presets）
+- [x] B2 前端切换：Vite proxy → 引擎，WS/SSE 实时事件流，CDP 实测页面渲染正常
+- [ ] server-ts 退役清理（稳定后删除 v1 独立服务，历史保留于 archive 分支）
 
 > 状态核对基准：2026-08 按代码核实（README 复选框为快照，接口/服务演进以仓库为准）。
 
