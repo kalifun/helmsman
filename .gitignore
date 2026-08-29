@@ -16,6 +16,7 @@ dsh/.sessions*/
 helmsman.db
 helmsman.db-shm
 helmsman.db-wal
+dsh/.helmsman.db*
 server-ts/helmsman-ts.db*
 server-ts/.npm-cache/
 
