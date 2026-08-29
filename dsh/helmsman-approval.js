@@ -11,7 +11,7 @@
 //   POST /api/projects/:pid/approvals/resume-all → {ok:true}
 // 超时/进程退出 → fail-closed（返回 'unavailable'，与引擎缺 answerer 语义一致）。
 export const name = 'helmsman-approval'
-export const inject = ['webServer', 'approval']
+export const inject = ['webServer', 'approval', 'helmsmanStorage']
 
 export function apply(ctx) {
   const { webServer } = ctx
@@ -146,16 +146,11 @@ export function apply(ctx) {
   // POST /api/projects/:pid/approvals/resume-all 由 helmsman-api 的 /api/projects prefix 处理
   // （避免跨插件 prefix 路由冲突）。注：B1 简化 —— 无挂起恢复语义，返回 ok。
 
-  // ---------- 策略沉淀（P1 O6 简化：内存表，前端可查看可删除） ----------
-  const policies = [] // {id, project_id, kind, scope, outcome, count, created_at, updated_at}
-  let policySeq = 0
+  // ---------- 策略沉淀（P1 O6：SQLite 持久化） ----------
+  const storage = ctx.get('helmsmanStorage')?.storage
   const rememberPolicy = (project_id, tool_name, outcome) => {
-    policySeq += 1
-    const now = Date.now()
-    const p = { id: policySeq, project_id, kind: 'tool', scope: tool_name, outcome, count: 1, created_at: now, updated_at: now }
-    policies.push(p)
-    if (policies.length > 200) policies.shift()
-    return p
+    if (storage) return storage.learnPolicy(project_id, 'tool', tool_name, outcome)
+    return null
   }
 
   // GET /api/policies?project= —— 策略列表
@@ -165,7 +160,7 @@ export function apply(ctx) {
     handler: (req, res) => {
       const url = new URL(req.url ?? '', 'http://localhost')
       const pid = url.searchParams.get('project')
-      const list = policies.filter((p) => !pid || p.project_id === pid)
+      const list = storage ? storage.listPolicies(pid ?? '') : []
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify(list))
     },
@@ -182,14 +177,9 @@ export function apply(ctx) {
         res.writeHead(404, { 'content-type': 'application/json' })
         return res.end('{"error":"not found"}')
       }
-      const idx = policies.findIndex((p) => p.id === Number(m[1]))
-      if (idx < 0) {
-        res.writeHead(404, { 'content-type': 'application/json' })
-        return res.end('{"error":"not found"}')
-      }
-      policies.splice(idx, 1)
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ ok: true }))
+      const ok = storage ? storage.deletePolicy(Number(m[1])) : false
+      res.writeHead(ok ? 200 : 404, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(ok ? { ok: true } : { error: 'not found' }))
     },
   })
 

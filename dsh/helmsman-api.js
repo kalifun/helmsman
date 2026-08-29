@@ -34,20 +34,10 @@ export function apply(ctx) {
     req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : {}) } catch (e) { reject(e) } })
     req.on('error', reject)
   })
-  // 项目 Profile 内存存储（P0 §2.6 三轴组合；B1 无持久化）
-  const profilesByProject = new Map()
+  // 项目 Profile（P0 §2.6 三轴组合；SQLite 持久化）
   const ensureBuiltins = (pid) => {
-    if (!profilesByProject.has(pid)) {
-      const mk = (id, name, mode, setting, approval, sandbox, isDefault) => ({
-        id, project_id: pid, name, is_builtin: true, mode, setting, approval, sandbox, is_default: isDefault,
-      })
-      profilesByProject.set(pid, [
-        mk('normal-light', '常规·轻量', 'normal', 'light', 'ask', 'workspace-write', true),
-        mk('plan-balanced', '计划·均衡', 'plan', 'balanced', 'ask', 'workspace-write', false),
-        mk('goal-delivery', '目标·交付', 'goal', 'delivery', 'auto', 'workspace-write', false),
-      ])
-    }
-    return profilesByProject.get(pid)
+    if (storage) storage.seedProfiles(pid)
+    return storage ? storage.listProfiles(pid) : []
   }
   const getProject = (pid) => board.projection.projects[pid]
   const getTask = (sid) => {
@@ -258,7 +248,7 @@ export function apply(ctx) {
               mode: body.mode, setting: body.setting, approval: body.approval, sandbox: body.sandbox,
               is_default: false,
             }
-            profiles.push(prof)
+            if (storage) storage.upsertProfile(pid2, prof)
             return json(res, 201, prof)
           } catch (e) {
             return json(res, 500, { error: e?.message ?? String(e) })
@@ -267,14 +257,14 @@ export function apply(ctx) {
         if (id2 && isDefault && req.method === 'POST') {
           const target = profiles.find((p) => p.id === id2)
           if (!target) return json(res, 404, { error: 'profile not found' })
-          for (const p of profiles) p.is_default = p.id === id2
+          if (storage) storage.setDefaultProfile(pid2, id2)
           return json(res, 200, { ok: true })
         }
         if (id2 && !isDefault && req.method === 'DELETE') {
-          const idx = profiles.findIndex((p) => p.id === id2)
-          if (idx < 0) return json(res, 404, { error: 'profile not found' })
-          if (profiles[idx].is_builtin) return json(res, 400, { error: 'cannot delete builtin' })
-          profiles.splice(idx, 1)
+          const target = profiles.find((p) => p.id === id2)
+          if (!target) return json(res, 404, { error: 'profile not found' })
+          if (target.is_builtin) return json(res, 400, { error: 'cannot delete builtin' })
+          if (storage) storage.removeProfile(pid2, id2)
           return json(res, 200, { ok: true })
         }
         return json(res, 404, { error: 'not found' })

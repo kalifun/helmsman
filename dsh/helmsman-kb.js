@@ -12,7 +12,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'helmsman-kb'
-export const inject = ['webServer', 'agents', 'sessions']
+export const inject = ['webServer', 'agents', 'sessions', 'helmsmanStorage']
 
 // ---------- 纯函数：从 server-ts/kb.ts + distill.ts 原样搬（只去 node:fs/ACP 依赖） ----------
 
@@ -173,7 +173,13 @@ function extractLastAssistantText(events) {
 
 export function apply(ctx) {
   const { webServer } = ctx
-  const notes = [] // D3-4：内存存储（SQLite 搬迁后续）
+  const storage = ctx.get('helmsmanStorage')?.storage
+  // 笔记统一走 SQLite（listNotes 加载；无 project 时用固定默认遍历）
+  const loadNotes = (project) => {
+    if (!storage) return []
+    if (project) return storage.listNotes(project)
+    return storage.listNotes('default') // 无 project 过滤：默认库（前端总是传 project）
+  }
   const json = (res, code, body) => {
     res.writeHead(code, { 'content-type': 'application/json' })
     res.end(JSON.stringify(body))
@@ -193,7 +199,7 @@ export function apply(ctx) {
       const url = new URL(req.url ?? '', 'http://localhost')
       const q = url.searchParams.get('q') ?? ''
       const project = url.searchParams.get('project')
-      const pool = project ? notes.filter((n) => n.project_id === project) : notes
+      const pool = loadNotes(project)
       if (!q.trim()) return json(res, 200, [])
       const hits = retrieve(pool, deriveQueries(q), { limit: 8 })
       json(res, 200, hits.map((h) => ({
@@ -214,7 +220,7 @@ export function apply(ctx) {
       if (req.method === 'GET') {
         const url = new URL(req.url ?? '', 'http://localhost')
         const project = url.searchParams.get('project')
-        const list = project ? notes.filter((n) => n.project_id === project) : notes
+        const list = loadNotes(project)
         // 有效笔记优先（未失效），按创建时间倒序
         list.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
         return json(res, 200, list)
@@ -233,7 +239,7 @@ export function apply(ctx) {
             sourceRef: body.source_ref ?? '',
             trust: body.trust ?? 'human-approved',
           })
-          notes.push(note)
+          if (storage) storage.upsertNote(note)
           return json(res, 201, { note })
         } catch (e) {
           return json(res, 500, { error: e?.message ?? String(e) })
@@ -251,10 +257,9 @@ export function apply(ctx) {
       const pathname = (req.url ?? '').split('?')[0]
       const inv = pathname.match(/^\/api\/kb\/notes\/([^/]+)\/invalidate$/)
       if (inv && req.method === 'POST') {
-        const n = notes.find((x) => x.id === inv[1])
+        const n = storage ? storage.getNote(inv[1]) : undefined
         if (!n) return json(res, 404, { error: 'note not found' })
-        n.validUntil = Date.now()
-        n.invalidatedBy = 'manual'
+        if (storage) storage.invalidateNote(n.id, 'manual', Date.now())
         return json(res, 200, { ok: true })
       }
       // POST /api/kb/notes/:id/stable —— 钉进/移出稳定前缀
@@ -263,12 +268,13 @@ export function apply(ctx) {
         return (async () => {
           try {
             const body = await readBody(req)
-            const n = notes.find((x) => x.id === stable[1])
+            const n = storage ? storage.getNote(stable[1]) : undefined
             if (!n) return json(res, 404, { error: 'note not found' })
             const pinned = body.pinned === true
             n.tags = n.tags ?? []
             if (pinned && !n.tags.includes('stable')) n.tags.push('stable')
             if (!pinned) n.tags = n.tags.filter((t) => t !== 'stable')
+            if (storage) storage.upsertNote(n)
             return json(res, 200, n)
           } catch (e) {
             return json(res, 500, { error: e?.message ?? String(e) })
@@ -305,7 +311,7 @@ export function apply(ctx) {
           sourceRef: body.source_ref ?? '',
           trust: 'agent-generated',
         })
-        notes.push(note)
+        if (storage) storage.upsertNote(note)
         json(res, 201, { note })
       } catch (e) {
         json(res, 500, { error: e?.message ?? String(e) })
