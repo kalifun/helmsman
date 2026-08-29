@@ -10,7 +10,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'helmsman-tasks'
-export const inject = ['webServer', 'agents', 'sessions']
+export const inject = ['webServer', 'agents', 'sessions', 'agentPresets']
 
 export function apply(ctx) {
   const { webServer, agents, sessions } = ctx
@@ -34,14 +34,20 @@ export function apply(ctx) {
       // POST /api/tasks —— 建任务
       if (pathname === '/api/tasks' && req.method === 'POST') {
         try {
-          const { cwd, brief } = await readBody(req)
+          const { cwd, brief, preset } = await readBody(req)
           if (!cwd || !brief) return json(res, 400, { error: 'cwd and brief required' })
           const sid = SessionId(`task-${randomUUID().slice(0, 12)}`)
           const { agent } = await agents.create({
             sessionId: sid,
             meta: { cwd },
             agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-            setup: (agentCtx) => { /* D3-4: preset mount / model selection 接点 */ },
+            // 任务级装配：preset 挂载（patch 3 的原生替代）+ model selection 接点
+            setup: async (agentCtx) => {
+              if (preset) {
+                const presets = ctx.get('agentPresets')
+                if (presets) await presets.mount(agentCtx, preset)
+              }
+            },
           })
           agent.followup(createUserMessage({
             content: [{ type: 'text', text: brief }],
