@@ -18,8 +18,8 @@ export function apply(ctx) {
   const worktree = ctx.get('helmsmanWorktree')
 
   ctx.provide('helmsmanTasks', {
-    /** 建任务：引擎内 agents.create + 首条指令。git 仓库自动建 worktree 隔离。返回 {sid, isolated}。 */
-    async createTask({ cwd, brief, preset, project_id, card_id }) {
+    /** 建任务：引擎内 agents.create + 首条指令（sendBrief=false 则不发送，等后续输入）。返回 {sid, isolated}。 */
+    async createTask({ cwd, brief, preset, project_id, card_id, sendBrief = true }) {
       const sid = SessionId(`task-${randomUUID().slice(0, 12)}`)
       const pid = project_id ?? 'default'
       // 任务级隔离：git 仓库 → worktree（agent 在隔离区跑，不写主工作区）；非 git/失败回退项目目录
@@ -72,11 +72,13 @@ export function apply(ctx) {
           }
         },
       })
-      agent.followup(createUserMessage({
-        content: [{ type: 'text', text: brief }],
-        source: { kind: 'user' },
-      }))
-      console.log(`[helmsman-tasks] created ${sid} cwd=${runCwd} project=${pid ?? '-'} card=${card_id ?? '-'}${isolated ? ' (ISOLATION FAILED)' : ''}`)
+      if (sendBrief && brief) {
+        agent.followup(createUserMessage({
+          content: [{ type: 'text', text: brief }],
+          source: { kind: 'user' },
+        }))
+      }
+      console.log(`[helmsman-tasks] created ${sid} cwd=${runCwd} project=${pid ?? '-'} card=${card_id ?? '-'}${isolated ? ' (ISOLATION FAILED)' : ''}${sendBrief ? '' : ' (waiting input)'}`)
       return { sid, isolated, worktree: worktreeInfo }
     },
 

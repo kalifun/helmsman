@@ -204,14 +204,14 @@ export function apply(ctx) {
         const p = getProject(decodeURIComponent(chats[1]))
         if (!p) return json(res, 404, { error: 'project not found' })
         try {
-          // 简单会话：建 agent 但无首条指令（等 sendChat）
+          // 简单会话：建 agent 但无首条指令（sendBrief=false，等用户第一次输入）
           const { sid } = await tasks.createTask({
             cwd: p.path,
-            brief: '（会话已建立）',
+            brief: undefined,
+            sendBrief: false,
             project_id: p.id,
             card_id: undefined,
           })
-          // createTask 会发首条指令；chat 场景改为不发，直接返回（保持简单：容忍占位消息）
           return json(res, 201, { session_id: sid })
         } catch (e) {
           return json(res, 500, { error: e?.message ?? String(e) })
