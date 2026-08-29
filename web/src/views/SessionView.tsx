@@ -28,6 +28,22 @@ export function SessionView({ pid }: { pid: string }) {
   const [kbHits, setKbHits] = useState<KbHit[]>([]);
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [promoteTitle, setPromoteTitle] = useState('');
+  // 会话内切模型（localStorage 持久化；下一轮生效由引擎 model 插件读取）
+  const [selModel, setSelModel] = useState<string | null>(() => {
+    try { return localStorage.getItem('helmsman-chat-model'); } catch { return null; }
+  });
+  const pickModel = (m: string) => {
+    try { localStorage.setItem('helmsman-chat-model', m); } catch { /* 忽略 */ }
+    setSelModel(m);
+    // 写入共享文件（引擎 model 插件读它，下一轮生效）；需 sid 已创建
+    if (sid) {
+      void fetch(`/api/sessions/${encodeURIComponent(sid)}/model`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: m }),
+      }).catch(() => {});
+    }
+    toast(`已切换模型 ${m}（下一轮生效）`);
+  };
   const areaRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<PromptBarHandle>(null);
 
@@ -238,7 +254,8 @@ export function SessionView({ pid }: { pid: string }) {
               mentions={kbHits.map((h) => ({ id: h.id, title: h.title, sub: h.summary?.slice(0, 60) }))}
               onMentionQuery={(q) => void searchKb(q)}
               commands={commands}
-              model={task?.model}
+              model={selModel || task?.model}
+              onModelChange={pickModel}
               actions={(
                 <>
                   <button type="button" className="pbar-tool" disabled={!hasThread} onClick={() => setPromoteOpen(true)} title="提升为任务">提升</button>

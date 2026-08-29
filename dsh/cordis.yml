@@ -160,3 +160,8 @@
   config:
     provider: deepseek-official
     model: deepseek-v4-flash
+
+# [helmsman] 会话内切模型（引擎生态内插件）：agent/inbox/claimed 时读共享文件
+# 选中模型 → installModelSelection 挂 agent 请求路由（下一轮生效）。
+- id: model-select
+  name: ./model-select.js

@@ -36,6 +36,19 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
   const [tab, setTab] = useState<SessionTab>('chat');
   const [input, setInput] = useState('');
   const [kbHits, setKbHits] = useState<{ id: string; title: string; summary: string }[]>([]);
+  // 会话内切模型（按 sid 持久化；引擎 model 插件经共享文件读取，下一轮生效）
+  const [selModel, setSelModel] = useState<string | null>(() => {
+    try { return localStorage.getItem('helmsman-session-model:' + sid); } catch { return null; }
+  });
+  const pickModel = (m: string) => {
+    try { localStorage.setItem('helmsman-session-model:' + sid, m); } catch { /* 忽略 */ }
+    setSelModel(m);
+    void fetch(`/api/sessions/${encodeURIComponent(sid)}/model`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: m }),
+    }).catch(() => {});
+    toast(`已切换模型 ${m}（下一轮生效）`);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<PromptBarHandle>(null);
 
@@ -278,7 +291,8 @@ export function SessionDetailView({ pid, sid }: { pid: string; sid: string }) {
           mentions={kbHits.map((h) => ({ id: h.id, title: h.title, sub: h.summary?.slice(0, 60) }))}
           onMentionQuery={(q) => void searchKb(q)}
           commands={commands}
-          model={task?.model}
+          model={selModel || task?.model}
+          onModelChange={pickModel}
         />
       </footer>
     </div>

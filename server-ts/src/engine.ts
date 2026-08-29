@@ -3,7 +3,7 @@
  * 对应 crates/spawn + crates/control 的 P0 面。
  */
 import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { AcpClient } from './acp-client.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -35,6 +35,8 @@ export async function startEngine(
     env: {
       HELMSMAN_SESSIONS_ROOT: env.sessionsRoot,
       HELMSMAN_WORKSPACE: env.workspace,
+      // 会话模型选择共享文件（引擎 model 插件读它，server 写它）
+      HELMSMAN_MODEL_FILE: join(env.workspace, '.helmsman', 'model-selection.json'),
     },
   })
   const result = (await Promise.race([

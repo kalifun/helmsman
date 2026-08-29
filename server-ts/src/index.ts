@@ -6,7 +6,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { createHash } from 'node:crypto'
-import { readdirSync, renameSync, rmSync, mkdirSync, openSync, readSync, closeSync, statSync, readFileSync } from 'node:fs'
+import { readdirSync, renameSync, rmSync, mkdirSync, openSync, readSync, closeSync, statSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, basename, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -55,6 +55,23 @@ const SESSIONS_ROOT = process.env.HELMSMAN_SESSIONS_ROOT ?? join(REPO, 'dsh/.ses
 const ARCHIVE_ROOT = join(dirname(SESSIONS_ROOT), '.sessions-archive')
 const DB_PATH = process.env.HELMSMAN_DB ?? join(REPO, 'helmsman.db')
 const WORKSPACE = process.cwd()
+
+// ---------- 会话模型选择（会话内切模型）：共享文件 { sid → model }，引擎 model 插件读 ----------
+const MODEL_SELECTION_FILE = join(WORKSPACE, '.helmsman', 'model-selection.json')
+function readModelSelection(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(readFileSync(MODEL_SELECTION_FILE, 'utf8')) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, string> : {}
+  } catch {
+    return {}
+  }
+}
+function writeModelSelection(sid: string, model: string): void {
+  const sel = readModelSelection()
+  sel[sid] = model
+  mkdirSync(join(WORKSPACE, '.helmsman'), { recursive: true })
+  writeFileSync(MODEL_SELECTION_FILE, JSON.stringify(sel, null, 2))
+}
 
 let CARD_SEQ = 0
 const genCardId = (): string => `card-${Date.now()}-${CARD_SEQ++}`
@@ -1666,6 +1683,25 @@ async function main(): Promise<void> {
         const sid = decodeURIComponent(cancelMatch[1])
         await acp.sessionCancel(sid)
         send(200, { ok: true })
+        return
+      }
+
+      // ---------- 会话模型选择（会话内切模型：引擎 model 插件经共享文件读，每轮生效） ----------
+      // GET/POST /api/sessions/:sid/model —— 读/写该会话选中模型（持久化到 .helmsman/model-selection.json）
+      const modelMatch = path.match(/^\/api\/sessions\/([^/]+)\/model$/)
+      if (modelMatch && method === 'GET') {
+        const sid = decodeURIComponent(modelMatch[1])
+        send(200, { model: readModelSelection()[sid] ?? null })
+        return
+      }
+      if (modelMatch && method === 'POST') {
+        const sid = decodeURIComponent(modelMatch[1])
+        const body = await readBody()
+        const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : ''
+        if (!model) throw new HttpError(400, 'model required')
+        writeModelSelection(sid, model)
+        console.warn(`[model] 会话 ${sid.slice(0, 8)} 切换模型 → ${model}（下一轮生效）`)
+        send(200, { ok: true, model })
         return
       }
 

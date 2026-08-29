@@ -91,6 +91,10 @@ interface Props {
   commands?: SlashCommand[];
   /** 当前模型名（只展示；没有切换 API 就不做假 picker） */
   model?: string;
+  /** 可用模型列表（模型菜单展示） */
+  models?: string[];
+  /** 选择模型回调（调用方持久化 + 下一轮生效） */
+  onModelChange?: (model: string) => void;
   /** 协作模式名（Agent / Auto 等，只展示） */
   mode?: string;
   /** 工具栏左侧附加动作（提升为任务等） */
@@ -112,6 +116,8 @@ export const PromptBar = forwardRef<PromptBarHandle, Props>(function PromptBar({
   mentionEmpty = '无命中',
   commands = [],
   model,
+  models = ['deepseek-v4-flash', 'deepseek-v4-pro'],
+  onModelChange,
   mode = 'Agent',
   actions,
   extra,
@@ -407,19 +413,22 @@ export const PromptBar = forwardRef<PromptBarHandle, Props>(function PromptBar({
           </button>
           {openMenu === 'model' ? (
             <div className="pbar-dropdown" role="menu">
-              {['deepseek-v4-flash', 'deepseek-v4-pro'].map((m) => (
+              {models.map((m) => (
                 <button
                   key={m}
                   type="button"
                   role="menuitem"
                   className={'pbar-dd-item' + (m === (model || 'deepseek-v4-flash') ? ' cur' : '')}
-                  onClick={() => setOpenMenu(null)}
+                  onClick={() => {
+                    setOpenMenu(null);
+                    if (m !== (model || 'deepseek-v4-flash')) onModelChange?.(m);
+                  }}
                 >
                   <span>{m}</span>
                   {(m === (model || 'deepseek-v4-flash')) ? <span className="pbar-dd-check">✓</span> : null}
                 </button>
               ))}
-              <div className="pbar-dd-note">引擎会话模型固定（新建任务/会话时生效），当前不可切</div>
+              <div className="pbar-dd-note">切换后下一轮对话生效（无需新建会话）</div>
             </div>
           ) : null}
         </div>
