@@ -17,8 +17,6 @@ helmsman.db
 helmsman.db-shm
 helmsman.db-wal
 dsh/.helmsman.db*
-server-ts/helmsman-ts.db*
-server-ts/.npm-cache/
 
 # 工具
 .direnv/
@@ -33,4 +31,3 @@ research/
 research-ide-agents.md
 design-mockups/
 docs-archive/
-server-ts/.sessions/

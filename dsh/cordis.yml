@@ -177,7 +177,8 @@
   name: ./model-select.js
 
 # ── 插件化迁移：引擎进程内 HTTP 网关 + Helmsman 业务插件（零 ACP 补丁）──
-# v1 的 server-ts（独立进程 + ACP 客户端）已逐步迁入引擎进程，见 docs/plugin-migration.md。
+# v1 的 server-ts（独立进程 + ACP 客户端）已迁入引擎进程并退役删除，
+# 历史保留于 archive/v1-acp-client 分支 + v1-acp-client tag。
 
 # HTTP 网关：引擎进程内 HTTP/WS 服务（所有 /api 路由的挂载点）。
 - id: webserver

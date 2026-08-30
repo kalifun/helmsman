@@ -70,8 +70,8 @@ dsh/         dsh 引擎组合 + Helmsman 业务插件（helmsman-api/tasks/board
   ├─ agent-presets/        guard 等任务级预设（工具/人格）
   └─ *.cordis.yml          各插件的独立验证组合
 web/         React 前端（经 Vite proxy 直连引擎 3081）
-server-ts/   v1 独立产品服务（已停用：被引擎插件替代，保留作参考实现；见 archive/v1-acp-client 分支）
 ```
+> v1 独立产品服务（server-ts）已退役删除：历史完整保留于 `archive/v1-acp-client` 分支 + `v1-acp-client` tag。
 
 ## 🗺 路线图
 
@@ -101,7 +101,7 @@ server-ts/   v1 独立产品服务（已停用：被引擎插件替代，保留�
 - [x] D3-5a 引擎侧清理：删 ACP 补丁 ×3，主组合合并业务插件
 - [x] B1 API 面补齐：28 端点全验收（projects/cards/tasks/chats/approvals/kb/metrics/experiments/fs/presets）
 - [x] B2 前端切换：Vite proxy → 引擎，WS/SSE 实时事件流，CDP 实测页面渲染正常
-- [ ] server-ts 退役清理（稳定后删除 v1 独立服务，历史保留于 archive 分支）
+- [x] server-ts 退役清理（已删除 v1 独立服务，历史保留于 archive/v1-acp-client 分支 + v1-acp-client tag）
 
 **迁移缺口补完（v1 能力在插件化时未随迁，2026-08 盘点）**：
 - [x] D3-6 验收门迁入：`evidence.ts`（任务 Done 拍 git 快照给审批人看）+ `verify.ts`（跑卡验收命令，退出码判定）→ 补进审批流程

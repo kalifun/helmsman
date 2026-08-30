@@ -46,6 +46,5 @@ eval "$(direnv export bash)"
 
 ```bash
 direnv exec . bash -lc 'cd dsh && pnpm install'
-direnv exec . bash -lc 'cd server-ts && pnpm test'
 direnv exec . bash -lc 'cd web && pnpm dev'
 ```
