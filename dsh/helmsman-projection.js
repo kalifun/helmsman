@@ -184,45 +184,43 @@ export function foldTask(t, ev) {
         t.usage.cacheReadTokens += typeof u.cacheReadTokens === 'number' ? u.cacheReadTokens : 0
         t.usage.reasoningTokens += typeof u.reasoningTokens === 'number' ? u.reasoningTokens : 0
       }
+      // 完整文本唯一来源（对齐官方 deriveEventMessage：assistant/message.content 是
+      // 权威文本；chunk/text-chunks 都是它的流式/存储中间态，不重复累积）。
+      // content 里 text → Text 活动，reasoning → Reasoning 活动（同 turn 合并追加）。
+      const msg = data?.message
+      const content = Array.isArray(msg?.content) ? msg.content : []
+      let textSeen = false
+      let reasonSeen = false
+      for (const b of content) {
+        if (b?.type === 'text' && typeof b.text === 'string' && b.text.length > 0) {
+          const last = t.activities[t.activities.length - 1]
+          if (!textSeen && last && 'Text' in last && last.Text.turn === t.current_turn) {
+            last.Text.text += b.text
+          } else {
+            pushActivity(t, { Text: { text: b.text, at: time, turn: t.current_turn } })
+          }
+          textSeen = true
+        } else if (b?.type === 'reasoning' && typeof b.text === 'string' && b.text.length > 0) {
+          const last = t.activities[t.activities.length - 1]
+          if (!reasonSeen && last && 'Reasoning' in last && last.Reasoning.turn === t.current_turn) {
+            last.Reasoning.text += b.text
+          } else {
+            pushActivity(t, { Reasoning: { text: b.text, at: time, turn: t.current_turn } })
+          }
+          reasonSeen = true
+        }
+      }
       break
     }
     case 'assistant/chunk': {
-      // 实时流无 text-chunks（那是 JSONL 存储编码）；完整文本在 block-end 的 block 里。
-      // 引擎内实时投影从这里累积 Text/Reasoning 活动。
-      const chunk = data?.chunk
-      if (chunk?.type === 'block-end' && chunk.block && typeof chunk.block.text === 'string') {
-        const blockText = chunk.block.text
-        if (chunk.block.type === 'text') {
-          const last = t.activities[t.activities.length - 1]
-          if (last && 'Text' in last && last.Text.turn === t.current_turn) {
-            last.Text.text += blockText
-          } else {
-            pushActivity(t, { Text: { text: blockText, at: time, turn: t.current_turn } })
-          }
-        } else if (chunk.block.type === 'reasoning') {
-          pushActivity(t, { Reasoning: { text: blockText, at: time, turn: t.current_turn } })
-        }
-      }
+      // 流式中间态：前端用 streams 实时显示，不进投影 activities（文本权威来源是
+      // assistant/message，避免与 message 双通道重复——v1 projection 同款注释）。
       break
     }
     case 'text-chunks':
     case 'reasoning-chunks': {
-      const texts = Array.isArray(data?.texts)
-        ? data.texts.filter((x) => typeof x === 'string').join('')
-        : ''
-      if (texts.length > 0) {
-        if (ty === 'text-chunks') {
-          // text-chunks 是增量打包块：同 turn 追加到上一条 Text
-          const last = t.activities[t.activities.length - 1]
-          if (last && 'Text' in last && last.Text.turn === t.current_turn) {
-            last.Text.text += texts
-          } else {
-            pushActivity(t, { Text: { text: texts, at: time, turn: t.current_turn } })
-          }
-        } else {
-          pushActivity(t, { Reasoning: { text: texts, at: time, turn: t.current_turn } })
-        }
-      }
+      // JSONL 存储编码（assistant/chunk delta 的无损打包）：同样不进投影。
+      // 文本以 assistant/message.content 为准（实时与重放同一路径）。
       break
     }
     case 'tool/call': {
