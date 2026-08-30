@@ -6,6 +6,7 @@ import { useUi, writeHash } from '../../store/ui';
 import { useProjection, cardStatus, type Project } from '../../store/projection';
 import { Icon } from '../icons';
 import { BrandMark } from '../BrandMark';
+import { RemoveProjectModal } from '../modals/RemoveProjectModal';
 
 export function Sidebar() {
   const pid = useUi((s) => s.pid);
@@ -16,6 +17,8 @@ export function Sidebar() {
   const projects = useProjection((s) => s.projects);
   const cards = useProjection((s) => s.cards);
   const pending = useUi((s) => s.pendingProjects);
+  // 待移除项目（侧栏 hover ✕ → 与首页/项目页共用同一确认框）
+  const [removeTarget, setRemoveTarget] = useState<{ pid: string; name: string } | null>(null);
 
   const list = useMemo(() => {
     const q = sideQ.trim().toLowerCase();
@@ -91,6 +94,16 @@ export function Sidebar() {
                 <div className="sstats">{stats.join(' · ') || '空闲'}</div>
               </div>
               {busy ? <span className="scount">{busy}</span> : null}
+              {!p.pending && (
+                <button
+                  className="side-rm"
+                  title="移除项目"
+                  aria-label={'移除项目 ' + p.name}
+                  onClick={(e) => { e.stopPropagation(); setRemoveTarget({ pid: p.id, name: p.name }); }}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           );
         })}
@@ -103,6 +116,9 @@ export function Sidebar() {
           <Icon name="gear" size="sm" />设置
         </button>
       </div>
+      {removeTarget ? (
+        <RemoveProjectModal pid={removeTarget.pid} name={removeTarget.name} onClose={() => setRemoveTarget(null)} />
+      ) : null}
     </aside>
   );
 }
