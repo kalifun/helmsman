@@ -506,6 +506,17 @@ export async function archiveChat(sid: string): Promise<boolean> {
   return res.ok;
 }
 
+/** GET /api/projects/:pid/chats/archived —— 归档会话列表 */
+export function listArchivedChats(pid: string): Promise<ChatSummary[]> {
+  return req<ChatSummary[]>('/projects/' + encodeURIComponent(pid) + '/chats/archived');
+}
+
+/** POST /api/chats/:sid/restore —— 恢复归档会话 */
+export async function restoreChat(sid: string): Promise<boolean> {
+  const res = await fetch(BASE + '/chats/' + encodeURIComponent(sid) + '/restore', { method: 'POST' });
+  return res.ok;
+}
+
 /** POST /api/chats/:sid/promote —— 提升为任务（会话上下文进简报 → 建卡自动跑） */
 export async function promoteChat(sid: string, input: { title?: string; description?: string }): Promise<{ card_id: string; session_id: string }> {
   const res = await fetch(BASE + '/chats/' + encodeURIComponent(sid) + '/promote', {

@@ -187,6 +187,22 @@ export function apply(ctx) {
           return json(res, 500, { error: e?.message ?? String(e) })
         }
       }
+      // GET /api/projects/:pid/chats/archived —— 归档会话列表（含恢复入口数据）
+      const chatsArch = pathname.match(/^\/api\/projects\/([^/]+)\/chats\/archived$/)
+      if (chatsArch && req.method === 'GET') {
+        const p = getProject(decodeURIComponent(chatsArch[1]))
+        if (!p) return json(res, 404, { error: 'project not found' })
+        const list = Object.values(p.chats)
+          .filter((t) => t.archived)
+          .map((t) => ({
+            session_id: t.id,
+            title: t.title ?? null,
+            status: t.status,
+            started_at: t.started_at ?? null,
+            finished_at: t.finished_at ?? null,
+          }))
+        return json(res, 200, list)
+      }
       // GET/POST /api/projects/:pid/chats —— 简单会话列表/新建
       const chats = pathname.match(/^\/api\/projects\/([^/]+)\/chats$/)
       if (chats && req.method === 'GET') {

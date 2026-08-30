@@ -765,6 +765,23 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 .chat-empty .t { font-size: 15px; font-weight: 600; color: var(--text2); margin-top: 12px; }
 .chat-empty .d { font-size: 12.5px; margin-top: 6px; line-height: 1.6; }
 .chat-empty .a { margin-top: 16px; display: flex; gap: 8px; justify-content: center; }
+/* 归档会话列表 */
+.chat-archived { width: 100%; max-width: 560px; margin-top: 24px; }
+.chat-archived-title { font-size: 14px; font-weight: 600; color: var(--text2); margin-bottom: 14px; }
+.chat-archived-list { display: flex; flex-direction: column; gap: 8px; }
+.chat-archived-item {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 10px 14px;
+}
+.chat-archived-name { font-size: 13px; font-weight: 500; color: var(--text1); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-archived-meta { font-size: 11px; color: var(--text3); white-space: nowrap; }
+.chat-archived-restore {
+  border: 1px solid var(--accent); background: transparent; color: var(--accent); cursor: pointer;
+  font-size: 12px; font-family: var(--font); padding: 4px 12px; border-radius: 6px;
+  transition: background .15s ease, color .15s ease;
+}
+.chat-archived-restore:hover { background: var(--accent); color: var(--surface); }
 .chat-turn { width: 100%; max-width: 640px; margin-bottom: 14px; }
 .chat-turn.user { margin-bottom: 10px; display: flex; justify-content: flex-end; }
 .chat-user {

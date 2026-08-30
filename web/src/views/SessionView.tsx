@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useUi, writeHash } from '../store/ui';
 import { useProjection, type TaskState } from '../store/projection';
+import * as api from '../api/client';
 import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 import { ToolChips, type ToolChip } from '../components/ToolChips';
@@ -23,6 +24,8 @@ export function SessionView({ pid }: { pid: string }) {
   const conn = useProjection((s) => s.conn);
   const toast = useUi((s) => s.toast);
   const [sid, setSid] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archivedList, setArchivedList] = useState<api.ChatSummary[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [kbHits, setKbHits] = useState<KbHit[]>([]);
@@ -243,14 +246,24 @@ export function SessionView({ pid }: { pid: string }) {
       },
     })),
     { id: '__new__', label: '＋ 新会话' },
+    { id: '__archived__', label: '🗄 归档' },
   ];
 
-  const switchChat = (id: string) => {
+  const switchChat = async (id: string) => {
     if (id === '__new__') {
-      setSid(null); // 空态；发消息时才创建
+      setSid(null); setArchivedOpen(false);
       setInput('');
       return;
     }
+    if (id === '__archived__') {
+      setSid(null); setArchivedOpen(true);
+      try {
+        const list = await api.listArchivedChats(pid);
+        setArchivedList(Array.isArray(list) ? list : []);
+      } catch { setArchivedList([]); }
+      return;
+    }
+    setArchivedOpen(false);
     setSid(id);
     void useProjection.getState().loadChat(id, pid);
   };
@@ -262,7 +275,7 @@ export function SessionView({ pid }: { pid: string }) {
         tab={sid ?? '__new__'}
         onTab={switchChat}
         bodyRef={areaRef}
-        footer={(
+        footer={archivedOpen ? null : (
           <>
             <PromptBar
               ref={barRef}
@@ -302,7 +315,39 @@ export function SessionView({ pid }: { pid: string }) {
             barRef.current?.focus();
           }}
         >
-          {!sid ? (
+          {archivedOpen ? (
+            <div className="chat-archived">
+              <div className="chat-archived-title">🗄 归档会话</div>
+              {archivedList.length === 0 ? (
+                <div className="chat-empty">
+                  <div className="d">没有归档会话。归档的会话会出现在这里，可恢复。</div>
+                </div>
+              ) : (
+                <div className="chat-archived-list">
+                  {archivedList.map((c) => (
+                    <div key={c.session_id} className="chat-archived-item">
+                      <span className="chat-archived-name">{c.title || c.session_id.slice(0, 14)}</span>
+                      <span className="chat-archived-meta">{c.status} · {(c.started_at ? new Date(c.started_at).toLocaleString() : '')}</span>
+                      <button
+                        type="button"
+                        className="chat-archived-restore"
+                        onClick={async () => {
+                          const ok = await api.restoreChat(c.session_id);
+                          if (ok) {
+                            toast('会话已恢复');
+                            setArchivedList((prev) => prev.filter((x) => x.session_id !== c.session_id));
+                            await useProjection.getState().loadChats(pid);
+                          } else toast('恢复失败，见错误横幅');
+                        }}
+                      >
+                        恢复
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : !sid ? (
             <div className="chat-empty">
               <Icon name="chat" className="ic" style={{ width: 26, height: 26, color: 'var(--text3)' }} />
               <div className="t">新会话</div>

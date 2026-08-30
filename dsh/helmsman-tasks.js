@@ -107,8 +107,20 @@ export function apply(ctx) {
 
     /** 分叉会话：复制原会话历史为新会话（独立继续，不干扰原会话）。返回 {sid}。 */
     async forkTask({ sid, project_id, card_id }) {
-      const srcAgent = agents.get(SessionId(sid))
-      if (!srcAgent) throw new Error(`task ${sid} not live`)
+      // 源会话需要 live agent：历史会话（重启后未 resume）先 resume
+      let srcAgent = agents.get(SessionId(sid))
+      if (!srcAgent) {
+        try {
+          const resumed = await agents.resume({
+            resumeSessionId: SessionId(sid),
+            agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          })
+          srcAgent = resumed?.agent
+        } catch (e) {
+          throw new Error(`task ${sid} not resumeable: ${e?.message ?? e}`)
+        }
+      }
+      if (!srcAgent?.session) throw new Error(`task ${sid} not live`)
       const events = srcAgent.session.events
       const seed = events.filter((ev) => ev.seq !== undefined || ev.seq0 !== undefined)
       const newSid = SessionId(`task-${randomUUID().slice(0, 12)}`)
