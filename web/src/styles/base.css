@@ -922,16 +922,20 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
   flex: 1; overflow-y: auto; padding: 20px 26px;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
 }
-/* 代码块预览：内容自适应高度（preview/codeblock 同高，无中间空白）；
-   长代码 codeblock-body 内部滚动（bar 固定，代码行滚动） */
+/* 代码块预览：IDE 式 —— codeblock 撑满到卡片底部（flex 列：头部固定，preview 占满剩余） */
+.fx-main:has(.fx-preview .codeblock) {
+  display: flex; flex-direction: column; overflow: hidden;
+}
 .fx-main .fx-preview:has(.codeblock) {
-  margin-top: 14px;
+  flex: 1; min-height: 0; margin-top: 14px;
+  display: flex; flex-direction: column;
 }
 .fx-main .fx-preview:has(.codeblock) .codeblock {
-  margin: 0;
+  flex: 1; min-height: 0; margin: 0;
+  display: flex; flex-direction: column;
 }
 .fx-main .fx-preview:has(.codeblock) .codeblock-body {
-  max-height: 60vh; overflow-y: auto;
+  flex: 1; min-height: 0; overflow: auto; max-height: none;
 }
 /* md 预览：流式内容自适应，短内容垂直居中 */
 .fx-main .fx-preview:not(:has(.codeblock)) {
