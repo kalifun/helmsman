@@ -286,6 +286,9 @@ interface ProjectionState {
   loadChat: (sid: string, pid?: string) => Promise<void>;
   createChat: (pid: string) => Promise<string | null>;
   sendChat: (sid: string, text: string) => Promise<boolean>;
+  renameChat: (sid: string, title: string) => Promise<boolean>;
+  forkChat: (sid: string, pid?: string) => Promise<string | null>;
+  archiveChat: (sid: string, pid?: string) => Promise<boolean>;
   promoteChat: (sid: string, input: { title?: string; description?: string }) => Promise<string | null>;
   saveChatToKb: (sid: string, title?: string) => Promise<boolean>;
   createCard: (pid: string, input: api.CreateCardInput) => Promise<string | null>;
@@ -419,6 +422,47 @@ export const useProjection = create<ProjectionState>((set, get) => ({
         return { streams };
       });
       return true;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return false;
+    }
+  },
+
+  renameChat: async (sid, title) => {
+    try {
+      const ok = await api.renameChat(sid, title);
+      if (ok) {
+        set((s) => ({ revision: s.revision + 1 }));
+        await get().loadChat(sid);
+      }
+      return ok;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return false;
+    }
+  },
+
+  forkChat: async (sid, pid) => {
+    try {
+      const r = await api.forkChat(sid);
+      if (!r.session_id) return null;
+      set((s) => ({ revision: s.revision + 1 }));
+      if (pid) await get().loadChats(pid);
+      return r.session_id;
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) });
+      return null;
+    }
+  },
+
+  archiveChat: async (sid, pid) => {
+    try {
+      const ok = await api.archiveChat(sid);
+      if (ok) {
+        set((s) => ({ revision: s.revision + 1 }));
+        if (pid) await get().loadChats(pid);
+      }
+      return ok;
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
       return false;

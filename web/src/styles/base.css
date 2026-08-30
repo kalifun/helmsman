@@ -1762,13 +1762,60 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 
 /* --- 对话面板（Beautiful UI Chat 移植：分页签 + 消息流 + composer）--- */
 .chatpanel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.chatpanel-tabs { display: flex; gap: 2px; padding: 10px 24px 0; }
+
+/* 会话 tab 行 + 改名（激活 tab 显示 ✎，点击变输入框） */
+.chatpanel-tabs { display: flex; gap: 2px; padding: 10px 24px 0; align-items: center; flex-wrap: wrap; }
 .chatpanel-tab {
-  font-size: var(--fs-md); padding: 5px 14px; border: none; background: transparent;
+  display: inline-flex; align-items: center; gap: 1px; position: relative;
+  font-size: var(--fs-md); padding: 0; border: none; background: transparent;
   color: var(--text2); cursor: pointer; border-radius: var(--r-sm); font-family: var(--font);
+  transition: background .15s ease, color .15s ease;
 }
 .chatpanel-tab:hover { color: var(--text); background: var(--bg-gray); }
 .chatpanel-tab.active { color: var(--text); background: var(--bg-gray); font-weight: 500; }
+.chatpanel-tab-label {
+  border: none; background: transparent; cursor: pointer; font-family: inherit;
+  font-size: inherit; color: inherit; font-weight: inherit; padding: 5px 4px 5px 12px;
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 操作按钮组（✎ 改名 + ⋮ 菜单）：激活 tab 可见，hover 强调 */
+.chatpanel-tab-actions { display: inline-flex; align-items: center; gap: 1px; }
+/* ⋮ 更多操作按钮：图标风（固定圆角方块，hover 背景明显） */
+.chatpanel-tab-btn {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 14px; line-height: 1; color: var(--text3);
+  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px; margin-right: 4px;
+  transition: color .15s ease, background .15s ease;
+  opacity: 0;
+}
+.chatpanel-tab.active .chatpanel-tab-btn { opacity: 1; }
+.chatpanel-tab-btn:hover { color: var(--text1); background: var(--bg-gray); }
+.chatpanel-tab-btn.open { color: var(--accent); background: var(--bg-gray); }
+/* 更多操作下拉菜单：fixed 定位（inline style 提供坐标），z-index 最高避免遮挡 */
+.chatpanel-tab-menu {
+  z-index: 1000;
+  background: var(--surface); border: 1px solid var(--line2); border-radius: var(--r-sm);
+  box-shadow: var(--shadow-float); padding: 4px; min-width: 120px;
+  display: flex; flex-direction: column;
+}
+.chatpanel-tab-menu-item {
+  border: none; background: transparent; cursor: pointer; text-align: left;
+  font-size: 12.5px; color: var(--text1); font-family: var(--font);
+  padding: 7px 10px; border-radius: 4px;
+}
+.chatpanel-tab-menu-item:hover { background: var(--bg-gray); }
+.chatpanel-tab-menu-item.danger { color: var(--red); }
+.chatpanel-tab-menu-item.danger:hover { background: var(--bg-red); }
+/* 改名输入框：胶囊形，贴合 tab 高度 */
+.chatpanel-tab-edit {
+  border: 1px solid var(--accent); background: var(--canvas); color: var(--text1);
+  font-size: var(--fs-md); font-weight: 500; font-family: var(--font);
+  padding: 4px 12px; border-radius: 999px; width: 160px;
+  outline: none; margin: 2px 0;
+}
+.chatpanel-tab-edit::placeholder { color: var(--text3); }
+
 .chatpanel-body {
   flex: 1; min-height: 0; overflow-y: auto; padding: 26px 24px 14px;
   display: flex; flex-direction: column; align-items: center;

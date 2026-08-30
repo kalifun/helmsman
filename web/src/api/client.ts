@@ -442,6 +442,7 @@ export async function setKbNoteStable(id: string, pinned: boolean): Promise<KbNo
 
 export interface ChatSummary {
   session_id: string;
+  title: string | null;
   status: string;
   turns: number;
   steps: number;
@@ -473,6 +474,36 @@ export async function sendChat(sid: string, text: string): Promise<{ stop_reason
   });
   if (!res.ok) throw new Error(`${res.status} ${(await res.text().catch(() => '')).slice(0, 200)}`);
   return (await res.json()) as { stop_reason: string };
+}
+
+/** POST /api/chats/:sid/title —— 用户改标题（钉住后自动生成停止） */
+export async function renameChat(sid: string, title: string): Promise<boolean> {
+  const res = await fetch(BASE + '/chats/' + encodeURIComponent(sid) + '/title', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`${res.status} ${body.slice(0, 200)}`);
+  }
+  return true;
+}
+
+/** POST /api/chats/:sid/fork —— 分叉会话（复制历史为新会话） */
+export async function forkChat(sid: string): Promise<{ session_id: string; forked_from?: string }> {
+  const res = await fetch(BASE + '/chats/' + encodeURIComponent(sid) + '/fork', { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`${res.status} ${body.slice(0, 200)}`);
+  }
+  return (await res.json()) as { session_id: string; forked_from?: string };
+}
+
+/** POST /api/chats/:sid/archive —— 归档会话（移出列表） */
+export async function archiveChat(sid: string): Promise<boolean> {
+  const res = await fetch(BASE + '/chats/' + encodeURIComponent(sid) + '/archive', { method: 'POST' });
+  return res.ok;
 }
 
 /** POST /api/chats/:sid/promote —— 提升为任务（会话上下文进简报 → 建卡自动跑） */

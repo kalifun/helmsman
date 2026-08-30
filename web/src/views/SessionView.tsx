@@ -215,15 +215,36 @@ export function SessionView({ pid }: { pid: string }) {
   // sendChat 完成后再清一次（双保险）。避免流式区与完整消息重复显示。
   const showStream = !!stream;
 
-  // 会话切换器：历史会话 tabs（最新在前）+ 新会话
+  // 会话切换器：历史会话 tabs（最新在前）+ 新会话（label 优先标题，无标题取最后消息）
   const sortedChats = [...chatList].sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0));
   const chatTabs: ChatTab[] = [
     ...sortedChats.slice(0, 8).map((c) => ({
       id: c.session_id,
-      label: c.last_text ? c.last_text.slice(0, 14) + (c.last_text.length > 14 ? '…' : '') : '空会话',
+      label: (c.title || c.last_text || '空会话').slice(0, 14) + ((c.title || c.last_text || '').length > 14 ? '…' : ''),
+      onRename: async (id, title) => {
+        const ok = await useProjection.getState().renameChat(id, title);
+        if (ok) await useProjection.getState().loadChats(pid);
+      },
+      onFork: async (id) => {
+        const newSid = await useProjection.getState().forkChat(id, pid);
+        if (newSid) {
+          toast('已分叉为新会话');
+          setSid(newSid);
+          await useProjection.getState().loadChats(pid);
+        }
+      },
+      onArchive: async (id) => {
+        const ok = await useProjection.getState().archiveChat(id, pid);
+        if (ok) {
+          toast('会话已归档');
+          setSid(null);
+          await useProjection.getState().loadChats(pid);
+        }
+      },
     })),
     { id: '__new__', label: '＋ 新会话' },
   ];
+
   const switchChat = (id: string) => {
     if (id === '__new__') {
       setSid(null); // 空态；发消息时才创建
@@ -290,7 +311,6 @@ export function SessionView({ pid }: { pid: string }) {
           ) : blocks.length === 0 ? (
             <div className="chat-empty">
               <Icon name="chat" className="ic" style={{ width: 26, height: 26, color: 'var(--text3)' }} />
-              <div className="t">简单会话</div>
               <div className="d">问答与探索，不进入看板。聊出眉目，可以提升为任务；值得记住的，存入知识库。</div>
             </div>
           ) : (
