@@ -922,8 +922,18 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
   flex: 1; overflow-y: auto; padding: 20px 26px;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
 }
-/* md 预览：内容短时垂直居中（避免顶部贴边 + 底部大片空白）；内容长时正常滚动 */
-.fx-main .fx-preview:has(.md) { min-height: calc(100% - 30px); display: flex; flex-direction: column; justify-content: center; }
+/* 代码块预览：IDE 式 —— 代码块撑满头部下方空间，整体内部滚动（无底部空白） */
+.fx-main .fx-preview:has(.codeblock) {
+  margin-top: 14px; height: calc(100% - 60px);
+}
+.fx-main .fx-preview:has(.codeblock) .codeblock {
+  height: 100%; margin: 0; overflow-y: auto;
+}
+/* md 预览：流式内容自适应，短内容垂直居中 */
+.fx-main .fx-preview:not(:has(.codeblock)) {
+  margin-top: 14px; min-height: calc(100% - 60px);
+  display: flex; flex-direction: column; justify-content: center;
+}
 .fx-preview .md { padding-bottom: 4px; width: 100%; }
 .fx-preview .md > :last-child { margin-bottom: 0; }
 .fx-main .fname { font-size: 16px; font-weight: 600; font-family: var(--mono); }
