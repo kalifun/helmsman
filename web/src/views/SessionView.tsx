@@ -218,10 +218,16 @@ export function SessionView({ pid }: { pid: string }) {
     { id: 'promote', label: '提升为任务', onClick: () => setPromoteOpen(true) },
     { id: 'save', label: '存入知识库', onClick: () => void saveKb() },
   ] : undefined;
-  // 流式显示：stream 存在即显示（流式区）。
-  // 生命周期：turn/end 事件清 stream（该轮回复完成，blocks 已回填）；
-  // sendChat 完成后再清一次（双保险）。避免流式区与完整消息重复显示。
-  const showStream = !!stream;
+  // 流式显示：stream 存在且与 blocks 最后一条 Text 不同才显示流式区。
+  // 生命周期：流式期间 stream 累积（滚动显示）；turn/end 后 REST 回填 blocks，
+  // 当 stream 内容 == blocks 最后一条 Text 时自然让位（无消失再显示的真空间隙）。
+  const lastText = blocks.length ? (() => {
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (blocks[i].kind === 'text') return blocks[i].text;
+    }
+    return '';
+  })() : '';
+  const showStream = !!stream && stream !== lastText;
 
   // 会话切换器：历史会话 tabs（最新在前）+ 新会话（label 优先标题，无标题取最后消息）
   const sortedChats = [...chatList].sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0));

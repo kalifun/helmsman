@@ -649,17 +649,12 @@ export const useProjection = create<ProjectionState>((set, get) => ({
         patch.streams = { ...get().streams, [sid]: (get().streams[sid] || '') + texts.join('') };
       }
     }
-    // turn/end = 该轮回复完成（服务端 fold 已落完整消息）→ 标记 + 清流式，
-    // 后续迟到的 chunk 不再拼（防流式残留与 blocks 完整消息重复显示）。
+    // turn/end = 该轮回复完成。只标记（防迟到 chunk 续拼），不清流式——
+    // 清太早会在 REST 回填 blocks 前造成"内容消失再显示"的真空闪烁；
+    // 由 SessionView 的 showStream 相等判断（stream === blocks 最后一条 Text）让位。
     if (ev.type === 'turn/end') {
       const sid = get().activeSessionId;
-      if (sid) {
-        doneTurns.add(sid);
-        if (get().streams[sid]) {
-          patch.streams = { ...get().streams };
-          delete patch.streams[sid];
-        }
-      }
+      if (sid) doneTurns.add(sid);
     }
     if (ev.type === 'assistant/message' && ev.data?.usage) {
       const u = ev.data.usage as Usage;
