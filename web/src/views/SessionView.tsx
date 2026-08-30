@@ -227,7 +227,23 @@ export function SessionView({ pid }: { pid: string }) {
     }
     return '';
   })() : '';
-  const showStream = !!stream && stream !== lastText;
+  // 流式让位判断：stream 是 lastText 的进行中版本——当 blocks 已回填完整文本
+  // （stream 与 lastText 内容一致，忽略末尾未拼完的差异）时流式区让位。
+  // 判断规则：lastText 以 stream 开头（stream 是完整文本的前缀）且
+  // stream 已覆盖 lastText 的大部分（≥60%）→ 视为已回填，流式让位。
+  const lastLen = lastText.length;
+  const streamLen = stream?.length ?? 0;
+  const showStream = !!stream && !(lastLen > 0 && lastText.startsWith(stream) && streamLen >= lastLen * 0.6);
+  // 流式期间：blocks 里"正在流式的那条 text"由流式区显示，这里截断避免重复
+  const visibleBlocks = showStream
+    ? (() => {
+        const out = [...blocks];
+        for (let i = out.length - 1; i >= 0; i--) {
+          if (out[i].kind === 'text') { out.splice(i, 1); break; }
+        }
+        return out;
+      })()
+    : blocks;
 
   // 会话切换器：历史会话 tabs（最新在前）+ 新会话（label 优先标题，无标题取最后消息）
   const sortedChats = [...chatList].sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0));
@@ -373,7 +389,7 @@ export function SessionView({ pid }: { pid: string }) {
               <div className="d">问答与探索，不进入看板。聊出眉目，可以提升为任务；值得记住的，存入知识库。</div>
             </div>
           ) : (
-            blocks.map((b, i) => (
+            visibleBlocks.map((b, i) => (
               <div key={i} className={'chat-turn ' + (b.kind === 'user' ? 'user' : 'agent')}>
                 {b.kind === 'think' ? (
                   <Thinking
@@ -385,7 +401,7 @@ export function SessionView({ pid }: { pid: string }) {
                 ) : (
                   <div className="chat-agent">
                     <Markdown text={b.text} />
-                    {i === blocks.length - 1 && !stream ? (
+                    {i === visibleBlocks.length - 1 && !stream ? (
                       <StreamingText
                         copyValue={b.text}
                         onCopy={copyOut}
