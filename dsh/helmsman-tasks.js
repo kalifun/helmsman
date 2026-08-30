@@ -95,8 +95,20 @@ export function apply(ctx) {
     },
 
     /** 评论 = 控制通道：followup 驱动 agent。 */
-    sendComment(sid, text) {
-      const agent = agents.get(SessionId(sid))
+    async sendComment(sid, text) {
+      // 历史会话（重启后未 resume）：先 resume 拿 live agent 再驱动
+      let agent = agents.get(SessionId(sid))
+      if (!agent) {
+        try {
+          const resumed = await agents.resume({
+            resumeSessionId: SessionId(sid),
+            agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+          })
+          agent = resumed?.agent
+        } catch (e) {
+          throw new Error(`task ${sid} not resumeable: ${e?.message ?? e}`)
+        }
+      }
       if (!agent) throw new Error(`task ${sid} not live`)
       agent.followup(createUserMessage({
         content: [{ type: 'text', text }],

@@ -409,7 +409,7 @@ export function apply(ctx) {
         try {
           const body = await readBody(req)
           if (!body.text) return json(res, 400, { error: 'text required' })
-          tasks.sendComment(decodeURIComponent(comment[1]), body.text)
+          await tasks.sendComment(decodeURIComponent(comment[1]), body.text)
           return json(res, 200, { ok: true })
         } catch (e) {
           return json(res, 500, { error: e?.message ?? String(e) })
@@ -476,7 +476,7 @@ export function apply(ctx) {
         try {
           const body = await readBody(req)
           if (!body.text) return json(res, 400, { error: 'text required' })
-          tasks.sendComment(decodeURIComponent(m[1]), body.text)
+          await tasks.sendComment(decodeURIComponent(m[1]), body.text)
           return json(res, 200, { ok: true })
         } catch (e) {
           return json(res, 500, { error: e?.message ?? String(e) })
