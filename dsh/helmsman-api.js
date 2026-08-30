@@ -17,6 +17,40 @@ import { join, dirname, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
+// ---------- 执行经济学定价（D3-7：server-ts/pricing.ts 原样搬 + 工作日修正） ----------
+// DeepSeek V4 峰谷定价：高峰 = 北京时间周一至周五 9:00–12:00 ∪ 14:00–18:00，
+// 其余（含周末全天）为空闲时段，空闲 = 高峰半价。
+// 元/百万 tokens；reasoning 未单独公布 → 按输出价近似。
+const PRICE_PEAK = {
+  flash: { input: 3.0, output: 9.0, cacheRead: 0.1, reasoning: 9.0 },
+  pro: { input: 9.0, output: 27.0, cacheRead: 0.3, reasoning: 27.0 },
+}
+const PRICE_OFFPEAK = {
+  flash: { input: 1.5, output: 4.5, cacheRead: 0.05, reasoning: 4.5 },
+  pro: { input: 4.5, output: 13.5, cacheRead: 0.15, reasoning: 13.5 },
+}
+/** 高峰判定：周一至周五（getUTCDay 1–5）且 9:00–12:00 ∪ 14:00–18:00（北京时间） */
+function isPeakHour(now = new Date()) {
+  // 北京时间 = UTC+8：把时刻平移 8 小时后用 UTC 读星期/小时
+  const bj = new Date(now.getTime() + 8 * 3600 * 1000)
+  const day = bj.getUTCDay() // 0=周日 … 6=周六
+  if (day === 0 || day === 6) return false // 周末全天空闲
+  const h = bj.getUTCHours()
+  return (h >= 9 && h < 12) || (h >= 14 && h < 18)
+}
+function priceOf(model, now = new Date()) {
+  const tier = model && String(model).toLowerCase().includes('pro') ? 'pro' : 'flash'
+  return isPeakHour(now) ? PRICE_PEAK[tier] : PRICE_OFFPEAK[tier]
+}
+function estCostFrom(usage, price) {
+  return (
+    ((usage?.inputTokens ?? 0) / 1e6) * price.input +
+    ((usage?.outputTokens ?? 0) / 1e6) * price.output +
+    ((usage?.cacheReadTokens ?? 0) / 1e6) * price.cacheRead +
+    ((usage?.reasoningTokens ?? 0) / 1e6) * price.reasoning
+  )
+}
+
 export const name = 'helmsman-api'
 export const inject = ['webServer', 'helmsmanBoard', 'helmsmanTasks', 'helmsmanStorage', 'sessionTitle', 'sessions', 'agents']
 
@@ -659,7 +693,7 @@ export function apply(ctx) {
     },
   })
 
-  // ---------- /api/metrics —— 执行度量（从投影派生，B1 简化：无 SQLite 持久化） ----------
+  // ---------- /api/metrics —— 执行度量（从投影派生；cost 按时段定价真实估算） ----------
   webServer.register({
     kind: 'exact',
     path: '/api/metrics',
@@ -671,6 +705,7 @@ export function apply(ctx) {
         if (pid && projectId !== pid) continue
         for (const card of Object.values(p.cards)) {
           for (const [sid, t] of Object.entries(card.executions)) {
+            const price = priceOf(t.model, t.finished_at ? new Date(t.finished_at) : undefined)
             rows.push({
               id: rows.length + 1,
               project_id: projectId,
@@ -682,12 +717,13 @@ export function apply(ctx) {
               steps: t.steps,
               group_tag: undefined,
               verified: false,
-              cost: 0,
+              cost: estCostFrom(t.usage, price),
               cache_hit: t.usage?.cacheReadTokens ?? 0,
               in_tokens: t.usage?.inputTokens ?? 0,
               cache_tokens: t.usage?.cacheReadTokens ?? 0,
               out_tokens: t.usage?.outputTokens ?? 0,
               reasoning_tokens: t.usage?.reasoningTokens ?? 0,
+              model: t.model ?? null,
             })
           }
         }
@@ -696,6 +732,22 @@ export function apply(ctx) {
     },
   })
 
+  // GET /api/pricing —— 当前时段价表（前端展示/成本说明）
+  webServer.register({
+    kind: 'exact',
+    path: '/api/pricing',
+    handler: (_req, res) => {
+      const now = new Date()
+      const peak = isPeakHour(now)
+      return json(res, 200, {
+        peak,
+        bjHour: (new Date(now.getTime() + 8 * 3600 * 1000)).getUTCHours(),
+        note: 'DeepSeek V4 峰谷定价：高峰 = 北京时间周一至周五 9:00–12:00 ∪ 14:00–18:00，其余（含周末全天）为空闲时段，空闲 = 高峰半价；元/百万 tokens',
+        flash: peak ? PRICE_PEAK.flash : PRICE_OFFPEAK.flash,
+        pro: peak ? PRICE_PEAK.pro : PRICE_OFFPEAK.pro,
+      })
+    },
+  })
   // ---------- /api/experiments/* —— 对照实验（B1 简化：建 A/B 对照卡，不持久化对比） ----------
   webServer.register({
     kind: 'prefix',
@@ -750,7 +802,8 @@ export function apply(ctx) {
         const all = []
         for (const card of Object.values(p.cards)) {
           for (const [sid, t] of Object.entries(card.executions)) {
-            all.push({ task_id: sid, outcome: t.status, turns: t.turns, steps: t.steps, cost: 0 })
+            const price = priceOf(t.model, t.finished_at ? new Date(t.finished_at) : undefined)
+            all.push({ task_id: sid, outcome: t.status, turns: t.turns, steps: t.steps, cost: estCostFrom(t.usage, price) })
           }
         }
         return json(res, 200, { project_id: p.id, a: all, b: [] })
