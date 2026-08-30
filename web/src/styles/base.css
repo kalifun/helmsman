@@ -487,10 +487,13 @@ path.g-edge.hl { stroke: var(--blue); stroke-width: 2; }
 .g-legend .sw.dash { border-top-style: dashed; border-color: var(--yellow); }
 
 /* ---------- 知识库 ---------- */
-#kbview { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#kbview {
+  flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+  padding: 24px 32px; gap: 16px;
+}
 .kb-bar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--surface); flex-shrink: 0;
+  flex-shrink: 0;
 }
 .kb-bar .search { position: relative; flex: 1; min-width: 180px; max-width: 360px; }
 .kb-bar .search .ic { position: absolute; left: 10px; top: 8px; color: var(--text3); }
@@ -501,8 +504,27 @@ path.g-edge.hl { stroke: var(--blue); stroke-width: 2; }
 }
 .kb-bar input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px var(--bg-blue); }
 .kb-bar .filters { padding: 0; }
-.kb-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-.kb-grid { flex: 1; min-width: 0; overflow: auto; }
+/* 顶部概览统计（总条数/稳定/来源分布） */
+.kb-stats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.kb-stat {
+  font-size: 11px; color: var(--text3); background: var(--bg-gray);
+  border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+}
+.kb-stat.muted { opacity: 0.75; }
+.kb-body { flex: 1; min-height: 0; display: flex; gap: 14px; overflow: hidden; }
+/* 记录表与详情：圆角卡片容器（与 fx-side / fx-main / home-sec 一致） */
+.kb-grid {
+  flex: 1; min-width: 0; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
+}
+.kb-main {
+  width: 380px; flex-shrink: 0; overflow-y: auto; padding: 22px 24px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
+}
+/* 笔记详情内容（Markdown 渲染） */
+.note-content { margin-top: 10px; font-size: 13px; line-height: 1.7; color: var(--text); }
+.note-content .md { padding: 0; }
+.note-content .md-h1 { font-size: 15px; } .note-content .md-h2 { font-size: 13.5px; } .note-content .md-h3 { font-size: 13px; }
 .kb-side { width: 280px; border-right: 1px solid var(--line); display: flex; flex-direction: column; background: var(--surface); padding: 14px 12px 0; }
 .kb-side .search { position: relative; margin-bottom: 12px; }
 .kb-side .search .ic { position: absolute; left: 10px; top: 8px; color: var(--text3); }
@@ -527,9 +549,9 @@ path.g-edge.hl { stroke: var(--blue); stroke-width: 2; }
 .kb-note .u { margin-top: 4px; font-size: 10.5px; color: var(--text3); font-family: var(--mono); }
 .kb-note.invalid { opacity: .45; }
 .kb-note.invalid .t { text-decoration: line-through; }
-.kb-main { width: 380px; flex-shrink: 0; overflow-y: auto; padding: 22px 24px; border-left: 1px solid var(--line); background: var(--surface); }
-.kb-main h2 { font-size: 19px; font-weight: 700; display: flex; align-items: center; gap: 10px; letter-spacing: -.01em; }
 .kb-main h3 { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+/* 详情卡内的 .note 去壳：kb-main 本身已是卡片，避免「卡中卡」 */
+.kb-main .note { margin: 0; background: none; border: none; border-radius: 0; padding: 0; font-size: inherit; color: inherit; }
 .kb-meta { font-size: 11.5px; color: var(--text3); margin: 6px 0 10px; font-family: var(--mono); }
 .kb-validity { margin: 14px 0 18px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); display: flex; align-items: center; gap: 12px; }
 .kb-lines { font-size: 13px; line-height: 1.75; }

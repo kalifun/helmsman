@@ -4,13 +4,22 @@ import { useEffect, useState } from 'react';
 import { Icon } from '../components/icons';
 import { Button } from '../components/Button';
 import { RecordsTable } from '../components/RecordsTable';
+import { Markdown } from '../components/Markdown';
 import { LoadingState } from '../components/LoadingState';
 import { invalidateKbNote, listKbNotes, searchKbNotes, setKbNoteStable, type DebtStatus, type KbNoteRow } from '../api/client';
 import { relTime } from '../store/projection';
 
 function isPinned(n: KbNoteRow): boolean {
-  return n.tags.some((t) => t.toLowerCase() === 'stable');
+  return (n.tags ?? []).some((t) => t.toLowerCase() === 'stable');
 }
+
+/** 来源友好标签（表格列 + 详情用） */
+const SOURCE_LABEL: Record<string, string> = {
+  task: '任务沉淀',
+  subagent: '子代理',
+  human: '人工录入',
+  project: '项目',
+};
 
 const TRUST_LABEL: Record<KbNoteRow['trust'], string> = {
   'human-approved': '人工确认',
@@ -71,6 +80,13 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
 
   const unusedCount = notes.filter((n) => n.debt?.status === 'unused').length;
   const toxicCount = notes.filter((n) => n.debt?.status === 'toxic').length;
+  // 顶部概览统计
+  const totalCount = notes.length;
+  const pinnedCount = notes.filter(isPinned).length;
+  const srcCounts = notes.reduce<Record<string, number>>((acc, n) => {
+    acc[n.source.kind] = (acc[n.source.kind] ?? 0) + 1;
+    return acc;
+  }, {});
   const visible = notes.filter((n) => {
     if (n.validUntil !== null) return false;
     if (filter === 'unused') return n.debt?.status === 'unused';
@@ -105,6 +121,12 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
 
   return (
     <div id="kbview">
+      <div className="ph-head">
+        <h1>知识库</h1>
+        <div className="ph-path">
+          任务自动沉淀 · 人工录入 · 稳定前缀 · 失效审计 —— 双时态演化（version / valid_until）
+        </div>
+      </div>
       <div className="kb-bar">
         <div className="search">
           <Icon name="search" size="sm" />
@@ -114,6 +136,13 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
           <button className={'chip' + (filter === 'valid' ? ' active' : '')} onClick={() => setFilter('valid')}>有效</button>
           <button className={'chip' + (filter === 'unused' ? ' active' : '')} onClick={() => setFilter('unused')}>从未引用{unusedCount ? ` ${unusedCount}` : ''}</button>
           <button className={'chip' + (filter === 'toxic' ? ' active' : '')} onClick={() => setFilter('toxic')}>可能有毒{toxicCount ? ` ${toxicCount}` : ''}</button>
+        </div>
+        <div className="kb-stats">
+          <span className="kb-stat">{totalCount} 条</span>
+          <span className="kb-stat">📌 {pinnedCount}</span>
+          {Object.entries(srcCounts).map(([k, c]) => (
+            <span key={k} className="kb-stat muted">{SOURCE_LABEL[k] ?? k} {c}</span>
+          ))}
         </div>
       </div>
       <div className="kb-body">
@@ -177,21 +206,25 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
                   key: 'src',
                   label: '来源',
                   width: '22%',
-                  cell: (n) => <span className="rtable-src">{n.source.kind}{n.source.ref ? ` · ${n.source.ref}` : ''}</span>,
+                  cell: (n) => (
+                    <span className="rtable-src">
+                      {SOURCE_LABEL[n.source.kind] ?? n.source.kind}
+                      {n.source.ref && n.source.ref !== n.source.kind ? ` · ${n.source.ref}` : ''}
+                    </span>
+                  ),
                 },
               ]}
             />
           )}
         </div>
+        {selected && (
         <div className="kb-main">
-          {!selected && <div className="ph-empty">选择一条笔记查看详情</div>}
-          {selected && (
             <div className="note">
               <h3>{selected.title}</h3>
               <div className="note-meta">
                 <span className={'trust trust-' + selected.trust}>{TRUST_LABEL[selected.trust]}</span>
                 {isPinned(selected) && <span className="trust trust-human-approved">稳定前缀</span>}
-                <span className="muted">来源：{selected.source.kind} · {new Date(selected.validFrom).toLocaleString()}</span>
+                <span className="muted">来源：{SOURCE_LABEL[selected.source.kind] ?? selected.source.kind} · {new Date(selected.validFrom).toLocaleString()}</span>
               </div>
               {selected.debt && (
                 <div className={'banner' + (selected.debt.status === 'toxic' ? ' warn' : selected.debt.status === 'unused' ? '' : ' ok')} style={{ marginTop: 12 }}>
@@ -201,7 +234,7 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
                   {selected.debt.status === 'toxic' ? ' —— 用了之后任务更容易失败' : ''}
                 </div>
               )}
-              {selected.content.map((line, i) => <p key={i}>{line}</p>)}
+              <div className="note-content"><Markdown text={selected.content.join('\n\n')} /></div>
               {selected.keywords.length > 0 && (
                 <div className="note-keywords">{selected.keywords.map((k) => <span key={k} className="tag">{k}</span>)}</div>
               )}
@@ -216,8 +249,8 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
                 </div>
               )}
             </div>
-          )}
         </div>
+        )}
       </div>
     </div>
   );

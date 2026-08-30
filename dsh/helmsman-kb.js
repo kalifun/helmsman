@@ -12,7 +12,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'helmsman-kb'
-export const inject = ['webServer', 'agents', 'sessions', 'helmsmanStorage']
+export const inject = ['webServer', 'agents', 'sessions', 'helmsmanStorage', 'helmsmanBoard']
 
 // ---------- 纯函数：从 server-ts/kb.ts + distill.ts 原样搬（只去 node:fs/ACP 依赖） ----------
 
@@ -191,6 +191,76 @@ export function apply(ctx) {
     req.on('error', reject)
   })
 
+  // ---------- 自动沉淀（v1 distillOrFallback 迁移） ----------
+  // 任务 turn/end 且 Done → 从投影取任务输出 → distill 提炼 → 存笔记（失败规则版兜底）
+  const board = ctx.get('helmsmanBoard')
+  const autoSedimented = new Set() // 已沉淀的 (sid, turn) 防重复
+  if (board) {
+    ctx.on('session/event', (session, event) => {
+      if (!session?.id || event?.type !== 'turn/end') return
+      const sid = session.id
+      const turn = event.data?.turn
+      const key = `${sid}:${turn}`
+      if (autoSedimented.has(key)) return
+      // 从投影找任务状态（card execution 或 chat）
+      const pid = board.projection?.sessionProject?.[sid]
+      if (!pid) return
+      const cardId = board.projection?.sessionCard?.[sid]
+      const proj = board.projection?.projects?.[pid]
+      const t = cardId ? proj?.cards?.[cardId]?.executions?.[sid] : proj?.chats?.[sid]
+      if (!t || t.status !== 'Done') return
+      // 有实际输出才沉淀（Text 活动）
+      const texts = (t.activities ?? []).filter((a) => 'Text' in a).map((a) => a.Text.text)
+      const tail = texts.join('\n').slice(-2000)
+      if (!tail.trim()) return
+      autoSedimented.add(key)
+      void (async () => {
+        try {
+          const title = t.title ?? '任务沉淀'
+          const related = []
+          const result = await distillWithEngine(ctx, {
+            cwd: proj.path,
+            title,
+            tail,
+            related,
+          })
+          let note
+          if (result && result.title) {
+            note = makeNote({
+              projectId: pid, title: result.title, content: result.content,
+              tags: [], keywords: result.keywords, summary: result.summary,
+              sourceKind: 'task', sourceRef: sid, trust: 'agent-generated',
+            })
+            console.log(`[helmsman-kb] 自动沉淀「${result.title}」（任务 ${title.slice(0, 24)}）`)
+          } else {
+            // 规则版兜底：标题 + 尾部摘要
+            note = makeNote({
+              projectId: pid, title: title.slice(0, 60), content: texts.slice(0, 10),
+              tags: [], keywords: [], summary: tail.slice(0, 120),
+              sourceKind: 'task', sourceRef: sid, trust: 'agent-generated',
+            })
+            console.log(`[helmsman-kb] 规则版沉淀「${title.slice(0, 24)}」`)
+          }
+          // 同任务会话已有笔记 → 升级（version+1、保留 id/createdAt/validFrom），不新建
+          const prev = storage
+            ? storage.listNotes(pid).find((n) => n.source?.kind === 'task' && n.source?.ref === sid)
+            : undefined
+          if (prev) {
+            note.id = prev.id
+            note.version = (prev.version ?? 1) + 1
+            note.createdAt = prev.createdAt
+            note.validFrom = prev.validFrom
+            console.log(`[helmsman-kb] 同任务更新「${note.title}」→ v${note.version}`)
+          }
+          if (storage) storage.upsertNote(note)
+        } catch (e) {
+          console.error('[helmsman-kb] 自动沉淀失败:', e?.message ?? e)
+        }
+      })()
+    })
+    console.log('[helmsman-kb] 自动沉淀已启用（任务 Done → distill → 存库）')
+  }
+
   // GET /api/kb/search?q=&project=
   webServer.register({
     kind: 'exact',
@@ -202,13 +272,8 @@ export function apply(ctx) {
       const pool = loadNotes(project)
       if (!q.trim()) return json(res, 200, [])
       const hits = retrieve(pool, deriveQueries(q), { limit: 8 })
-      json(res, 200, hits.map((h) => ({
-        id: h.note.id,
-        title: h.note.title,
-        summary: h.note.summary,
-        score: h.score,
-        project_id: h.note.project_id,
-      })))
+      // 返回完整笔记 + score（前端表格列依赖 tags/source/trust/validUntil）
+      json(res, 200, hits.map((h) => ({ ...h.note, score: h.score })))
     },
   })
 
