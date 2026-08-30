@@ -1783,26 +1783,27 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 /* 会话 tab 行 + 改名（激活 tab 显示 ✎，点击变输入框） */
 .chatpanel-tabs { display: flex; gap: 2px; padding: 10px 24px 0; align-items: center; flex-wrap: wrap; }
 .chatpanel-tab {
-  display: inline-flex; align-items: center; gap: 1px; position: relative;
-  font-size: var(--fs-md); padding: 0; border: none; background: transparent;
-  color: var(--text2); cursor: pointer; border-radius: var(--r-sm); font-family: var(--font);
+  display: flex; align-items: center; position: relative;
+  font-size: var(--fs-md); min-width: 96px; padding: 6px 10px; border: none; background: transparent;
+  color: var(--text2); cursor: pointer; border-radius: 999px; font-family: var(--font);
   transition: background .15s ease, color .15s ease;
 }
 .chatpanel-tab:hover { color: var(--text); background: var(--bg-gray); }
 .chatpanel-tab.active { color: var(--text); background: var(--bg-gray); font-weight: 500; }
 .chatpanel-tab-label {
+  flex: 1; text-align: center;
   border: none; background: transparent; cursor: pointer; font-family: inherit;
-  font-size: inherit; color: inherit; font-weight: inherit; padding: 5px 4px 5px 12px;
-  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: inherit; color: inherit; font-weight: inherit; padding: 0;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* 操作按钮组（✎ 改名 + ⋮ 菜单）：激活 tab 可见，hover 强调 */
-.chatpanel-tab-actions { display: inline-flex; align-items: center; gap: 1px; }
-/* ⋮ 更多操作按钮：图标风（固定圆角方块，hover 背景明显） */
+/* 操作按钮组：⋮ 绝对定位胶囊右侧，label 独立居中 */
+.chatpanel-tab-actions { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); display: inline-flex; align-items: center; }
+/* ⋮ 更多操作按钮：图标风（圆角，hover 背景明显） */
 .chatpanel-tab-btn {
   border: none; background: transparent; cursor: pointer;
   font-size: 14px; line-height: 1; color: var(--text3);
-  width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 6px; margin-right: 4px;
+  width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; margin: 0;
   transition: color .15s ease, background .15s ease;
   opacity: 0;
 }
