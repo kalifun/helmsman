@@ -9,7 +9,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'helmsman-tasks'
-export const inject = ['agents', 'sessions', 'agentPresets', 'helmsmanBoard', 'helmsmanStorage', 'helmsmanWorktree']
+export const inject = ['agents', 'sessions', 'agentPresets', 'helmsmanBoard', 'helmsmanStorage', 'helmsmanWorktree', 'helmsmanKb']
 
 export function apply(ctx) {
   const { agents, sessions } = ctx
@@ -77,8 +77,29 @@ export function apply(ctx) {
         },
       })
       if (sendBrief && brief) {
+        // 任务启动装配（D3-9）：项目知识库命中 + 稳定前缀 → 首条 prompt
+        let promptText = brief
+        try {
+          const kb = ctx.get('helmsmanKb')
+          if (kb?.assembleTaskPrompt && (project_id || card_id)) {
+            // 装配（含命中清单），同时把 kbHits 记到投影（前端简报 tab 展示）
+            const assembled = await kb.assembleTaskPromptFull({
+              taskTitle: brief, // v2 的 brief = 任务执行指令（v1 的 title+description 合体）
+              taskDescription: '',
+              projectId: pid,
+              brief: true,
+            })
+            if (assembled) {
+              promptText = assembled.prompt
+              const t = board?.projection?.projects?.[pid]?.cards?.[card_id]?.executions?.[sid]
+              if (t) t.brief_snapshot = assembled.kbHits
+            }
+          }
+        } catch (e) {
+          console.warn(`[helmsman-tasks] 装配失败（回落原始 brief）:`, e?.message ?? e)
+        }
         agent.followup(createUserMessage({
-          content: [{ type: 'text', text: brief }],
+          content: [{ type: 'text', text: promptText }],
           source: { kind: 'user' },
         }))
       }

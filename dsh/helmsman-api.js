@@ -720,7 +720,7 @@ export function apply(ctx) {
               id: rows.length + 1,
               project_id: projectId,
               task_id: sid,
-              brief_snapshot: [],
+              brief_snapshot: t.brief_snapshot ?? [],
               outcome: t.status,
               cited_entries: [],
               turns: t.turns,

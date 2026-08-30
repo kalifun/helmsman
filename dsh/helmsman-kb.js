@@ -88,6 +88,93 @@ async function retrieveHybrid(notes, queries, queryText, opts = {}) {
   return scored.filter((s) => s.score >= threshold).slice(0, limit)
 }
 
+// ---------- 上下文装配（D3-9：server-ts/assembly.ts 迁移） ----------
+// 任务启动：任务定义 + 知识库检索命中 → 首条 prompt（规格 §4.2 五步的规则版）。
+// 前缀分区（§6D 缓存杠杆）：[项目稳定知识块（固定跨任务 → KV 缓存）][任务定义 + 相关命中（变化）]。
+
+const STABLE_TAG = 'stable'
+const TRUST_RANK_ASSEMBLY = { 'human-approved': 3, 'agent-generated': 2, unverified: 1 }
+
+/** 稳定前缀只收用户钉的 `stable` 标签，不按信任级自动塞旧笔记。 */
+function selectStableNotes(notes, limit = 5) {
+  return (notes ?? [])
+    .filter((n) => (n.tags ?? []).some((t) => String(t).toLowerCase() === STABLE_TAG))
+    .sort((a, b) => {
+      const tr = (TRUST_RANK_ASSEMBLY[b.trust] ?? 0) - (TRUST_RANK_ASSEMBLY[a.trust] ?? 0)
+      if (tr !== 0) return tr
+      return String(a.id).localeCompare(String(b.id))
+    })
+    .slice(0, limit)
+    .map((n) => ({ title: n.title, content: n.content }))
+}
+
+/** 一条笔记相对历史执行的债务：注入了没用 / 用了还失败。 */
+function scoreNoteDebt(noteId, metrics) {
+  let injected = 0
+  let cited = 0
+  let failedWhenCited = 0
+  for (const m of metrics ?? []) {
+    if ((m.brief_snapshot ?? []).some((h) => h && h.id === noteId)) injected += 1
+    if ((m.cited_entries ?? []).includes(noteId)) {
+      cited += 1
+      if (m.outcome !== 'Done' || m.verified === false) failedWhenCited += 1
+    }
+  }
+  let status = 'idle'
+  if (cited >= 1 && failedWhenCited * 2 >= cited) status = 'toxic'
+  else if (cited >= 1) status = 'useful'
+  else if (injected >= 2) status = 'unused'
+  return { injected, cited, failedWhenCited, status }
+}
+
+/** 任务相关检索：unused / toxic 不再装配。稳定前缀只收用户钉的 `stable` 标签，不走这条。 */
+function debtDemoteWeight(status) {
+  if (status === 'toxic' || status === 'unused') return 0
+  return 1
+}
+
+/** 装配简报：混合检索任务相关命中 + 债务降权。 */
+async function assembleBrief({ taskTitle, taskDescription, notes, threshold = 0.15, maxKbEntries = 5, demote = {} }) {
+  const taskText = `${taskTitle ?? ''}\n${taskDescription ?? ''}`.trim()
+  const queries = deriveQueries(taskText)
+  const hits = await retrieveHybrid(notes, queries, taskText, {
+    limit: maxKbEntries,
+    threshold,
+    demote,
+  })
+  return {
+    taskTitle: taskTitle ?? '',
+    taskDescription: taskDescription ?? '',
+    kbHits: hits.map((h) => ({
+      id: h.note.id,
+      title: h.note.title,
+      score: Math.round(h.score * 100) / 100,
+      trust: h.note.trust,
+    })),
+  }
+}
+
+/** 渲染为发给引擎的 prompt 文本（简报 → 首条消息）。 */
+function renderBriefPrompt(brief, projectStableNotes = []) {
+  const lines = []
+  if (projectStableNotes.length > 0) {
+    lines.push('—— 项目稳定知识（本项目的既有结论，跨任务一致）——')
+    for (const n of projectStableNotes) {
+      lines.push(`• ${n.title}：${(n.content ?? []).join(' ').slice(0, 200)}`)
+    }
+    lines.push('')
+  }
+  lines.push(`任务：${brief.taskTitle}`)
+  if (String(brief.taskDescription ?? '').trim()) lines.push(brief.taskDescription.trim())
+  if (brief.kbHits.length > 0) {
+    lines.push('', '—— 与本任务相关的知识库条目（按相关度排序）——')
+    for (const h of brief.kbHits) {
+      lines.push(`[${h.score}] ${h.title}`)
+    }
+  }
+  return lines.join('\n')
+}
+
 function makeNote(input) {
   const t = Date.now()
   return {
@@ -437,7 +524,39 @@ export function apply(ctx) {
     },
   })
 
-  console.log('[helmsman-kb] 知识库路由已注册：/api/kb/search /api/kb/notes /api/kb/distill')
+  // ---------- 内部服务：helmsmanKb（供 helmsman-tasks 任务启动装配） ----------
+  ctx.provide('helmsmanKb', {
+    /** 任务启动装配：项目笔记 + 历史度量 → {prompt, kbHits}。 */
+    async assembleTaskPromptFull({ taskTitle, taskDescription, projectId, brief = true }) {
+      const pool = loadNotes(projectId)
+      const metrics = storage ? storage.listMetrics(projectId) : []
+      if (brief === false) return { prompt: `${taskTitle ?? ''}\n\n${taskDescription ?? ''}`.trim(), kbHits: [] }
+      const stableNotes = selectStableNotes(pool)
+      const demote = {}
+      for (const n of pool) {
+        const w = debtDemoteWeight(scoreNoteDebt(n.id, metrics).status)
+        if (w !== 1) demote[n.id] = w
+      }
+      const brief2 = await assembleBrief({
+        taskTitle: taskTitle ?? '',
+        taskDescription: taskDescription ?? '',
+        notes: pool,
+        threshold: 0.15,
+        maxKbEntries: 5,
+        demote,
+      })
+      return { prompt: renderBriefPrompt(brief2, stableNotes), kbHits: brief2.kbHits }
+    },
+    /** 仅 prompt（兼容旧签名）。 */
+    async assembleTaskPrompt({ taskTitle, taskDescription, projectId, brief = true }) {
+      const r = await this.assembleTaskPromptFull({ taskTitle, taskDescription, projectId, brief })
+      return r.prompt
+    },
+    /** 稳定前缀笔记（前端展示）。 */
+    selectStableNotes,
+  })
+
+  console.log('[helmsman-kb] 知识库路由已注册：/api/kb/search /api/kb/notes /api/kb/distill；装配服务 helmsmanKb 已提供')
 }
 
 export default { name, inject, apply }
