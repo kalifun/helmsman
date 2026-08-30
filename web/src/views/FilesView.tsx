@@ -25,6 +25,8 @@ export function FilesView({ pid }: { pid: string }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [pLoading, setPLoading] = useState(false);
   const [pErr, setPErr] = useState('');
+  // 折叠的目录路径集合（点目录切换展开/折叠）
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -56,22 +58,38 @@ export function FilesView({ pid }: { pid: string }) {
     }
   };
 
-  const renderNode = (n: FNode, path: string): React.ReactNode => (
-    <div key={path}>
-      <button
-        className={'fx-node ' + n.type + (sel === path ? ' sel' : '')}
-        onClick={() => { if (n.type === 'file') void openFile(path); }}
-      >
-        <Icon name={n.type === 'dir' ? 'folder' : 'doc'} size="sm" />
-        {n.name}
-      </button>
-      {n.children?.length ? (
-        <div className="fx-children">
-          {n.children.map((c) => renderNode(c, path ? path + '/' + c.name : c.name))}
-        </div>
-      ) : null}
-    </div>
-  );
+  const renderNode = (n: FNode, path: string): React.ReactNode => {
+    const isDir = n.type === 'dir';
+    const isCollapsed = isDir && collapsed.has(path);
+    return (
+      <div key={path}>
+        <button
+          className={'fx-node ' + n.type + (sel === path ? ' sel' : '')}
+          onClick={() => {
+            if (isDir) {
+              // 目录：切换展开/折叠
+              setCollapsed((prev) => {
+                const next = new Set(prev);
+                if (next.has(path)) next.delete(path); else next.add(path);
+                return next;
+              });
+            } else {
+              void openFile(path);
+            }
+          }}
+        >
+          {isDir ? <span className="fx-caret">{isCollapsed ? '▸' : '▾'}</span> : <span className="fx-caret" />}
+          <Icon name={isDir ? 'folder' : 'doc'} size="sm" />
+          {n.name}
+        </button>
+        {n.children?.length ? (
+          <div className={'fx-children' + (isCollapsed ? ' collapsed' : '')}>
+            {n.children.map((c) => renderNode(c, path ? path + '/' + c.name : c.name))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   const ext = preview?.name.includes('.') ? preview.name.split('.').pop()! : '';
   const isMd = ext === 'md' || ext === 'markdown' || ext === 'mdown';
