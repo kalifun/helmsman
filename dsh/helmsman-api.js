@@ -12,8 +12,8 @@
 //   GET  /api/chats/:sid               → TaskState（简单会话）
 //   GET  /api/projects/:pid/chats      → ChatSummary[]
 import { execSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
-import { join, dirname, resolve } from 'node:path'
+import { readdirSync, statSync, readFileSync } from 'node:fs'
+import { join, dirname, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { SessionId } from '@deepseek-ai/dsh-session'
 
@@ -241,6 +241,27 @@ export function apply(ctx) {
       const resumeAll = pathname.match(/^\/api\/projects\/([^/]+)\/approvals\/resume-all$/)
       if (resumeAll && req.method === 'POST') {
         return json(res, 200, { ok: true })
+      }
+      // GET /api/projects/:pid/files —— 工作区文件树（v1 listFileTree 迁移）
+      const filesM = pathname.match(/^\/api\/projects\/([^/]+)\/files$/)
+      if (filesM && req.method === 'GET') {
+        const p = getProject(decodeURIComponent(filesM[1]))
+        if (!p) return json(res, 404, { error: 'project not found' })
+        return json(res, 200, listFileTree(p.path))
+      }
+      // GET /api/projects/:pid/files/read?path= —— 文件预览（v1 readProjectFile 迁移）
+      const fileReadM = pathname.match(/^\/api\/projects\/([^/]+)\/files\/read$/)
+      if (fileReadM && req.method === 'GET') {
+        const p = getProject(decodeURIComponent(fileReadM[1]))
+        if (!p) return json(res, 404, { error: 'project not found' })
+        const url = new URL(req.url ?? '', 'http://localhost')
+        const rel = url.searchParams.get('path') ?? ''
+        try {
+          return json(res, 200, readProjectFile(p.path, rel))
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'read failed'
+          return json(res, msg === 'not found' ? 404 : 403, { error: msg })
+        }
       }
       // /api/projects/:pid/presets* —— 项目 Profile 管理（P0 §2.6 三轴组合；B1 内存存储）
       const presetsM = pathname.match(/^\/api\/projects\/([^/]+)\/presets(?:\/([^/]+))?(?:\/(default))?$/)
@@ -777,7 +798,57 @@ export function apply(ctx) {
     },
   })
 
-  console.log('[helmsman-api] 业务 API 已注册：/api/projects* /api/cards* /api/tasks* /api/chats* /api/fs*')
+  console.log('[helmsman-api] 业务 API 已注册：/api/projects* /api/cards* /api/tasks* /api/chats* /api/fs* /api/files*')
+}
+
+// ---------- 工作区文件树（v1 listFileTree 迁移） ----------
+// 过滤：node_modules/.git/.sessions/.npm-cache/dist/*.db/.DS_Store；限深 5、每目录 100 项。
+function listFileTree(dir, depth = 0) {
+  const SKIP = new Set(['node_modules', '.git', '.sessions', '.npm-cache', 'dist', 'research', 'docs-archive', 'design-mockups', '.DS_Store'])
+  const name = basename(dir)
+  const out = { name, type: 'dir', children: [] }
+  if (depth > 5) return { ...out, children: undefined }
+  let entries = []
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+      .filter((e) => !SKIP.has(e.name) && !e.name.startsWith('.'))
+      .sort((a, b) => (a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1))
+      .slice(0, 100)
+      .map((e) => e.name)
+  } catch { return { ...out, children: undefined } }
+  for (const n of entries) {
+    const full = join(dir, n)
+    try {
+      const st = statSync(full)
+      if (st.isDirectory()) out.children.push(listFileTree(full, depth + 1))
+      else out.children.push({ name: n, type: 'file' })
+    } catch { /* 跳过不可读 */ }
+  }
+  return out
+}
+
+// ---------- 文件预览读取（v1 readProjectFile 迁移） ----------
+// 安全：路径解析到工作区内（防穿越）；路径段命中 SKIP/隐藏 → 拒绝；大小 ≤ 256KB（超出截断标记）；二进制（含 NUL）→ 不返回内容。
+const SKIP_SET = new Set(['node_modules', '.git', '.sessions', '.npm-cache', 'dist', 'research', 'docs-archive', 'design-mockups', '.DS_Store'])
+function readProjectFile(workspace, rel) {
+  if (!rel || rel.includes('\0')) throw new Error('bad path')
+  const full = resolve(workspace, rel)
+  if (!full.startsWith(resolve(workspace) + '/') && full !== resolve(workspace)) throw new Error('path escapes workspace')
+  const segs = rel.split('/')
+  if (segs.some((s) => SKIP_SET.has(s) || s.startsWith('.'))) throw new Error('path not allowed')
+  let st
+  try { st = statSync(full) } catch { throw new Error('not found') }
+  if (!st.isFile()) throw new Error('not a file')
+  const size = st.size
+  if (size > 262144) {
+    return { path: rel, name: basename(full), size, content: '', truncated: true, binary: false }
+  }
+  const buf = readFileSync(full)
+  // 二进制检测：前 8KB 含 NUL
+  const head = buf.subarray(0, 8192)
+  const binary = head.includes(0)
+  if (binary) return { path: rel, name: basename(full), size, content: '', truncated: false, binary: true }
+  return { path: rel, name: basename(full), size, content: buf.toString('utf8'), truncated: false, binary: false }
 }
 
 export default { name, inject, apply }
