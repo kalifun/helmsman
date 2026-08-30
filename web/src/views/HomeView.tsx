@@ -8,6 +8,8 @@ import { Button } from '../components/Button';
 import { Skeleton } from '../components/Skeleton';
 import { EmptyState } from '../components/EmptyState';
 import { BrandMark } from '../components/BrandMark';
+import { RemoveProjectModal } from '../components/modals/RemoveProjectModal';
+import { useState } from 'react';
 
 interface Agg { total: number; pending: number; running: number; done: number; failed: number; cancelled: number }
 
@@ -15,6 +17,8 @@ export function HomeView() {
   const projects = useProjection((s) => s.projects);
   const loading = useProjection((s) => s.loading);
   const setDirOpen = useUi((s) => s.setDirOpen);
+  // 待移除项目（HomeView 首页也可删项目；modal 与 ProjectHomeView 共用）
+  const [removeTarget, setRemoveTarget] = useState<{ pid: string; name: string } | null>(null);
 
   const all = Object.values(projects);
   const agg: Agg = all.reduce(
@@ -106,6 +110,16 @@ export function HomeView() {
                       {has(2) ? <StatusPill status="Done" label={'完成 ' + c[2]} /> : null}
                       {has(4) ? <StatusPill status="Cancelled" label={'已取消 ' + c[4]} /> : null}
                     </span>
+                    <Button
+                      variant="quiet"
+                      mini
+                      className="home-project-rm"
+                      title="移除项目"
+                      aria-label={'移除项目 ' + p.name}
+                      onClick={(e) => { e.stopPropagation(); setRemoveTarget({ pid: p.id, name: p.name }); }}
+                    >
+                      ✕
+                    </Button>
                   </div>
                   <div className="pm">{p.path} · {p.card_count} 张卡</div>
                 </div>
@@ -122,6 +136,9 @@ export function HomeView() {
           </div>
         </div>
       </div>
+      {removeTarget ? (
+        <RemoveProjectModal pid={removeTarget.pid} name={removeTarget.name} onClose={() => setRemoveTarget(null)} />
+      ) : null}
     </div>
   );
 }

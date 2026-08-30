@@ -265,6 +265,9 @@ svg.ic.sm { width: 13px; height: 13px; }
 .home-project .row1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .home-project .pname { font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
 .home-project .pillrow { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.home-project .home-project-rm { margin-left: 2px; color: var(--text3); opacity: 0; transition: opacity .12s, color .12s; flex-shrink: 0; }
+.home-project:hover .home-project-rm { opacity: 1; }
+.home-project .home-project-rm:hover { color: var(--red); background: var(--bg-red); }
 .home-project .pm { font-family: var(--mono); font-size: 10.5px; color: var(--text3); margin-top: 3px; }
 
 /* 状态 pill（粉彩语义） */

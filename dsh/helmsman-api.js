@@ -117,10 +117,20 @@ export function apply(ctx) {
           try {
             const body = await readBody(req)
             if (!body.name || !body.path) return json(res, 400, { error: 'name and path required' })
-            const pid = body.id ?? `p-${Date.now().toString(36)}`
-            board.ensureProject(pid, body.name, body.path)
-            if (storage) storage.upsertProject(pid, body.name, body.path, '{}')
-            json(res, 201, { id: pid })
+            const pathNorm = String(body.path).trim().replace(/\/+$/, '')
+            const name = String(body.name).trim()
+            // 仅移除可恢复：重新导入同目录 → 取消归档 + 复用原 id（v1 语义）
+            const archived = storage ? storage.findArchivedProject(pathNorm) : undefined
+            let isRestored = false
+            if (archived) {
+              if (storage) storage.unarchiveProject(archived.id)
+              isRestored = true
+            }
+            const pid = archived?.id ?? body.id ?? `p-${Date.now().toString(36)}`
+            board.ensureProject(pid, name, pathNorm)
+            if (storage) storage.upsertProject(pid, name, pathNorm, '{}')
+            console.log(`[helmsman-api] project ${pid} ${isRestored ? 'restored (archive)' : 'created'} name=${name} path=${pathNorm}`)
+            json(res, 201, { id: pid, name, path: pathNorm, restored: isRestored })
           } catch (e) {
             json(res, 500, { error: e?.message ?? String(e) })
           }
