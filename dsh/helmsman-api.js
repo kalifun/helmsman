@@ -11,7 +11,7 @@
 //   GET  /api/tasks/:sid               → TaskState（执行/会话状态）
 //   GET  /api/chats/:sid               → TaskState（简单会话）
 //   GET  /api/projects/:pid/chats      → ChatSummary[]
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import { readdirSync, statSync, readFileSync } from 'node:fs'
 import { join, dirname, resolve, basename } from 'node:path'
 import { homedir } from 'node:os'
@@ -262,6 +262,39 @@ export function apply(ctx) {
           const msg = e instanceof Error ? e.message : 'read failed'
           return json(res, msg === 'not found' ? 404 : 403, { error: msg })
         }
+      }
+      // GET /api/projects/:pid/repo-status —— git 仓库状态（v1 repoStatus 迁移）
+      const repoM = pathname.match(/^\/api\/projects\/([^/]+)\/repo-status$/)
+      if (repoM && req.method === 'GET') {
+        const p = getProject(decodeURIComponent(repoM[1]))
+        if (!p) return json(res, 404, { error: 'project not found' })
+        return json(res, 200, repoStatus(p.path))
+      }
+      // GET/PUT /api/projects/:pid/settings —— 项目设置（检索阈值/装配条数；v1 迁移，SQLite 持久化）
+      const settingsM = pathname.match(/^\/api\/projects\/([^/]+)\/settings$/)
+      if (settingsM) {
+        const pid3 = decodeURIComponent(settingsM[1])
+        if (!getProject(pid3)) return json(res, 404, { error: 'project not found' })
+        const readSettings = () => ({
+          retrieval_threshold: Number(storage?.getConfig?.(pid3, 'retrieval_threshold') ?? '0.15'),
+          brief_entries: Number(storage?.getConfig?.(pid3, 'brief_entries') ?? '5'),
+        })
+        if (req.method === 'GET') return json(res, 200, readSettings())
+        if (req.method === 'PUT') {
+          try {
+            const body = await readBody(req)
+            const threshold = typeof body.retrieval_threshold === 'number' ? body.retrieval_threshold : null
+            const entries = typeof body.brief_entries === 'number' ? body.brief_entries : null
+            if (threshold != null && (threshold < 0.05 || threshold > 0.9)) return json(res, 400, { error: 'retrieval_threshold must be 0.05-0.9' })
+            if (entries != null && (entries < 1 || entries > 10)) return json(res, 400, { error: 'brief_entries must be 1-10' })
+            if (threshold != null && storage) storage.setConfig(pid3, 'retrieval_threshold', String(threshold))
+            if (entries != null && storage) storage.setConfig(pid3, 'brief_entries', String(entries))
+            return json(res, 200, readSettings())
+          } catch (e) {
+            return json(res, 500, { error: e?.message ?? String(e) })
+          }
+        }
+        return json(res, 405, { error: 'method not allowed' })
       }
       // /api/projects/:pid/presets* —— 项目 Profile 管理（P0 §2.6 三轴组合；B1 内存存储）
       const presetsM = pathname.match(/^\/api\/projects\/([^/]+)\/presets(?:\/([^/]+))?(?:\/(default))?$/)
@@ -849,6 +882,51 @@ function readProjectFile(workspace, rel) {
   const binary = head.includes(0)
   if (binary) return { path: rel, name: basename(full), size, content: '', truncated: false, binary: true }
   return { path: rel, name: basename(full), size, content: buf.toString('utf8'), truncated: false, binary: false }
+}
+
+// ---------- git 仓库状态（v1 repoStatus 迁移） ----------
+// execFileSync 不经 shell：避免 %(refname:short) 这类参数被 sh 解析。
+function repoStatus(workspace) {
+  const git = (args, opts = {}) => {
+    try {
+      const out = execFileSync('git', args, { cwd: workspace, encoding: 'utf8', timeout: opts.timeoutMs ?? 5000 })
+      return opts.trim === false ? out : out.trim()
+    } catch { return '' }
+  }
+  if (!git(['rev-parse', '--is-inside-work-tree'])) {
+    return { branch: '', dirty: 0, staged: 0, untracked: 0, conflicted: 0, ahead: 0, behind: 0, lastCommit: '', changes: [], branches: [], history: [], error: 'not a git repo' }
+  }
+  const branch = git(['branch', '--show-current'])
+  const status = git(['status', '--porcelain'], { trim: false }).split('\n').filter(Boolean).map((l) => l.replace(/\r$/, ''))
+  const staged = status.filter((l) => /^[MADRCU]/.test(l)).length
+  const untracked = status.filter((l) => /^\?\?/.test(l)).length
+  const conflicted = status.filter((l) => l.length >= 2 && (l[0] === 'U' || l[1] === 'U')).length
+  const changes = status.map((l) => {
+    const x = l[0] ?? ' '
+    const y = l[1] ?? ' '
+    const path = l.slice(3).replace(/^"|"$/g, '')
+    if (x === '?' && y === '?') return { code: '?', staged: false, path }
+    const conflictedFlag = x === 'U' || y === 'U'
+    if (conflictedFlag) return { code: 'U', staged: false, path }
+    const code = y !== ' ' ? y : x
+    return { code, staged: x !== ' ' && x !== '?', path }
+  })
+  // 分支列表（过滤任务隔离区 worktree 分支 —— helmsman/card-… 内部噪音）
+  const branches = git(['branch', '--format=%(refname:short)'])
+    .split('\n').filter(Boolean)
+    .filter((name) => !name.startsWith('helmsman/card-'))
+    .map((name) => ({ name, current: name === branch }))
+  // 提交历史（最近 6 条：hash / 相对时间 / subject）
+  const history = git(['log', '-6', '--format=%h%x09%ar%x09%s'])
+    .split('\n').filter(Boolean)
+    .map((line) => {
+      const [hash, when, ...rest] = line.split('\t')
+      return { hash, when: when ?? '', subject: rest.join('\t') }
+    })
+  const ahead = Number(git(['rev-list', '--count', 'origin/' + branch + '..HEAD']) || 0)
+  const behind = Number(git(['rev-list', '--count', 'HEAD..origin/' + branch]) || 0)
+  const lastCommit = git(['log', '-1', '--format=%s'])
+  return { branch, dirty: status.length, staged, untracked, conflicted, ahead, behind, lastCommit, changes, branches, history }
 }
 
 export default { name, inject, apply }
