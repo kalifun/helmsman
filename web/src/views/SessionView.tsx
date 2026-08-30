@@ -26,6 +26,8 @@ export function SessionView({ pid }: { pid: string }) {
   const [sid, setSid] = useState<string | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [archivedList, setArchivedList] = useState<api.ChatSummary[]>([]);
+  // 当前激活 tab：会话 sid / '__new__'（新会话）/ '__archived__'（归档）——决定高亮
+  const [activeTab, setActiveTab] = useState<string>('__new__');
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [kbHits, setKbHits] = useState<KbHit[]>([]);
@@ -62,6 +64,7 @@ export function SessionView({ pid }: { pid: string }) {
         // 复用最新会话（按 started_at 降序取第一个）
         const latest = [...list].sort((a, b) => (b.started_at ?? 0) - (a.started_at ?? 0))[0];
         setSid(latest.session_id);
+        setActiveTab(latest.session_id);
         await useProjection.getState().loadChat(latest.session_id, pid);
       } else {
         setSid(null); // 空态：不创建，等用户发消息
@@ -99,6 +102,7 @@ export function SessionView({ pid }: { pid: string }) {
         return;
       }
       setSid(target);
+      setActiveTab(target);
     }
     const ok = await useProjection.getState().sendChat(target, v);
     setBusy(false);
@@ -122,6 +126,7 @@ export function SessionView({ pid }: { pid: string }) {
       setPromoteOpen(false);
       writeHash(pid, 'kanban', cardId, 'comments');
       setSid(null);
+      setActiveTab('__new__');
       setInput('');
     } else {
       toast('提升失败，见错误横幅');
@@ -233,6 +238,7 @@ export function SessionView({ pid }: { pid: string }) {
         if (newSid) {
           toast('已分叉为新会话');
           setSid(newSid);
+          setActiveTab(newSid);
           await useProjection.getState().loadChats(pid);
         }
       },
@@ -241,6 +247,7 @@ export function SessionView({ pid }: { pid: string }) {
         if (ok) {
           toast('会话已归档');
           setSid(null);
+          setActiveTab('__new__');
           await useProjection.getState().loadChats(pid);
         }
       },
@@ -250,6 +257,7 @@ export function SessionView({ pid }: { pid: string }) {
   ];
 
   const switchChat = async (id: string) => {
+    setActiveTab(id);
     if (id === '__new__') {
       setSid(null); setArchivedOpen(false);
       setInput('');
@@ -272,7 +280,7 @@ export function SessionView({ pid }: { pid: string }) {
     <div id="chatview">
       <ChatPanel
         tabs={chatTabs}
-        tab={sid ?? '__new__'}
+        tab={activeTab}
         onTab={switchChat}
         bodyRef={areaRef}
         footer={archivedOpen ? null : (
