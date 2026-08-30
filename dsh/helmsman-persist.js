@@ -68,6 +68,28 @@ export function apply(ctx) {
     console.warn(`[helmsman-persist] 启动重放失败（忽略，继续）:`, e?.message ?? e)
   }
 
+  // 简单会话恢复（对齐 v1 index.ts 275-290）：chat_sessions 标记的会话
+  // 从隐式卡挪到项目 chats（独立会话不进看板），并修正投影映射。
+  for (const pid of Object.keys(proj.projects)) {
+    const p0 = proj.projects[pid]
+    for (const sid of storage.listChats(pid)) {
+      const cardId = proj.sessionCard[sid]
+      const t = cardId ? p0.cards[cardId]?.executions[sid] : p0.chats[sid]
+      if (!t) continue
+      if (cardId) {
+        const card = p0.cards[cardId]
+        if (card) {
+          delete card.executions[sid]
+          card.exec_order = card.exec_order.filter((x) => x !== sid)
+          // chat 会话的隐式卡（execs 空 = 仅承载此会话）无条件清掉
+          if (card.exec_order.length === 0) delete p0.cards[cardId]
+        }
+        p0.chats[sid] = t
+        proj.sessionCard[sid] = ''
+      }
+    }
+  }
+
   // 把恢复的投影合并进 board（含 fold 好的执行状态，不丢 Done/Running 等）
   for (const [id, p] of Object.entries(proj.projects)) {
     board.ensureProject(id, p.name, p.path)

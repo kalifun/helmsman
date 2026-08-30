@@ -2,6 +2,23 @@
 # 观察通道：JSONL 会话日志（.sessions/）tail —— model-visible ⟺ logged 是权威事件源。
 # 无 session-query：架构决策（见 architecture-v1.md §2.1），不引入演示 bundle 的派生索引。
 
+# 会话标题：规则 fallback + LLM 生成（首条消息后自动生成标题，可后续修改）
+- id: session-title
+  name: '@deepseek-ai/dsh-session-title'
+  config:
+    fallbackMaxWords: 5
+    fallbackMaxBytes: 40
+    maxTitleBytes: 80
+
+- id: session-title-llm
+  name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 64
+    timeoutMs: 60000
+
 # 用户设置（$DSH_HOME/settings.yaml，热重载）
 - id: settings
   name: '@deepseek-ai/dsh-settings-file'

@@ -45,6 +45,10 @@ export function apply(ctx) {
           }
         }
         board.registerSession(sid, pid, card_id ?? '')
+        // 简单会话：写入 chat_sessions 表（重启后恢复到项目 chats，不进看板）
+        if (storage && !card_id) {
+          storage.registerChat(sid, pid)
+        }
         // 执行快照落盘（重启后 session→卡 映射恢复的权威来源）
         if (storage && card_id) {
           const created = Date.now()
@@ -99,6 +103,40 @@ export function apply(ctx) {
         source: { kind: 'user' },
       }))
       return { ok: true }
+    },
+
+    /** 分叉会话：复制原会话历史为新会话（独立继续，不干扰原会话）。返回 {sid}。 */
+    async forkTask({ sid, project_id, card_id }) {
+      const srcAgent = agents.get(SessionId(sid))
+      if (!srcAgent) throw new Error(`task ${sid} not live`)
+      const events = srcAgent.session.events
+      const seed = events.filter((ev) => ev.seq !== undefined || ev.seq0 !== undefined)
+      const newSid = SessionId(`task-${randomUUID().slice(0, 12)}`)
+      const pid = project_id ?? board?.projection?.sessionProject?.[sid] ?? 'default'
+      const { agent } = await agents.create({
+        sessionId: newSid,
+        meta: {
+          cwd: srcAgent.session.header?.cwd ?? process.cwd(),
+          parentSession: srcAgent.session.id,
+          seedLength: seed.length,
+        },
+        seed,
+        agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      })
+      // 把 seed 历史 fold 进投影（board 只实时 fold，seed 需手动补）
+      if (board) {
+        board.registerSession(newSid, pid, card_id ?? '')
+        for (const ev of seed) board.fold(newSid, ev)
+        if (storage && card_id) {
+          storage.upsertExecution({
+            id: newSid, card_id, status: 'Pending', preset_json: '{}', deps_json: '[]',
+            forked_from: sid, started_at: null, finished_at: null, created_at: Date.now(),
+          })
+        }
+        if (storage && !card_id) storage.registerChat(newSid, pid)
+      }
+      console.log(`[helmsman-tasks] forked ${sid} → ${newSid} (${seed.length} events)`)
+      return { sid: newSid }
     },
 
     /** 任务状态：agent live 则实时读 session log；否则查投影。 */

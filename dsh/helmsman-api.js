@@ -15,9 +15,10 @@ import { execSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import { SessionId } from '@deepseek-ai/dsh-session'
 
 export const name = 'helmsman-api'
-export const inject = ['webServer', 'helmsmanBoard', 'helmsmanTasks', 'helmsmanStorage']
+export const inject = ['webServer', 'helmsmanBoard', 'helmsmanTasks', 'helmsmanStorage', 'sessionTitle', 'sessions', 'agents']
 
 export function apply(ctx) {
   const { webServer } = ctx
@@ -191,13 +192,16 @@ export function apply(ctx) {
       if (chats && req.method === 'GET') {
         const p = getProject(decodeURIComponent(chats[1]))
         if (!p) return json(res, 404, { error: 'project not found' })
-        const list = Object.values(p.chats).map((t) => ({
-          session_id: t.id,
-          title: t.title ?? null,
-          status: t.status,
-          started_at: t.started_at ?? null,
-          finished_at: t.finished_at ?? null,
-        }))
+        // 列表只显示未归档会话（archived 标记由归档端点设置）
+        const list = Object.values(p.chats)
+          .filter((t) => !t.archived)
+          .map((t) => ({
+            session_id: t.id,
+            title: t.title ?? null,
+            status: t.status,
+            started_at: t.started_at ?? null,
+            finished_at: t.finished_at ?? null,
+          }))
         return json(res, 200, list)
       }
       if (chats && req.method === 'POST') {
@@ -458,6 +462,70 @@ export function apply(ctx) {
           if (!body.text) return json(res, 400, { error: 'text required' })
           tasks.sendComment(decodeURIComponent(m[1]), body.text)
           return json(res, 200, { ok: true })
+        } catch (e) {
+          return json(res, 500, { error: e?.message ?? String(e) })
+        }
+      }
+      // POST /api/chats/:sid/fork —— 分叉会话（复制历史为新会话）
+      const forkM = pathname.match(/^\/api\/chats\/([^/]+)\/fork$/)
+      if (forkM && req.method === 'POST') {
+        try {
+          const srcSid = decodeURIComponent(forkM[1])
+          const { sid: newSid } = await tasks.forkTask({
+            sid: srcSid,
+            project_id: board.projection.sessionProject?.[srcSid],
+            card_id: board.projection.sessionCard?.[srcSid] || undefined,
+          })
+          return json(res, 201, { session_id: newSid, forked_from: srcSid })
+        } catch (e) {
+          return json(res, 500, { error: e?.message ?? String(e) })
+        }
+      }
+      // POST /api/chats/:sid/archive —— 归档会话（移出列表；投影标记 archived）
+      const archM = pathname.match(/^\/api\/chats\/([^/]+)\/archive$/)
+      if (archM && req.method === 'POST') {
+        const sid = decodeURIComponent(archM[1])
+        const t = getTask(sid)
+        if (!t) return json(res, 404, { error: 'chat not found' })
+        t.archived = true
+        return json(res, 200, { ok: true })
+      }
+      // POST /api/chats/:sid/restore —— 恢复归档会话（archived 标记清除）
+      const restM = pathname.match(/^\/api\/chats\/([^/]+)\/restore$/)
+      if (restM && req.method === 'POST') {
+        const sid = decodeURIComponent(restM[1])
+        const t = getTask(sid)
+        if (!t) return json(res, 404, { error: 'chat not found' })
+        t.archived = false
+        return json(res, 200, { ok: true })
+      }
+      // POST /api/chats/:sid/title —— 用户改标题（引擎 sessionTitle.rename，钉住后自动生成停止）
+      const titleM = pathname.match(/^\/api\/chats\/([^/]+)\/title$/)
+      if (titleM && req.method === 'POST') {
+        try {
+          const body = await readBody(req)
+          const title = typeof body.title === 'string' ? body.title.trim() : ''
+          if (!title) return json(res, 400, { error: 'title required' })
+          // 用 sessionTitle.rename（需要 live session；改名后钉住，自动生成停止）
+          // live 会话：agent.session 是权威 live 实例；历史会话（重启后未 resume）：先 resume 再 rename
+          const sid = decodeURIComponent(titleM[1])
+          const session = ctx.get('sessionTitle')
+          let agent = ctx.get('agents')?.get?.(sid)
+          if (!agent?.session) {
+            // 历史会话：resume 拿 live session（resume 后 title 写入 JSONL，重启重放保留）
+            try {
+              const resumed = await ctx.get('agents')?.resume?.({
+                resumeSessionId: SessionId(sid),
+                agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+              })
+              agent = resumed?.agent
+            } catch (e) {
+              return json(res, 404, { error: `session not resumeable: ${e?.message ?? e}` })
+            }
+          }
+          if (!agent?.session) return json(res, 404, { error: 'session not live' })
+          const renamed = session.rename(agent.session, title)
+          return json(res, 200, { ok: true, title: renamed.title })
         } catch (e) {
           return json(res, 500, { error: e?.message ?? String(e) })
         }
