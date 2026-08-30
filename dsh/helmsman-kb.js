@@ -10,6 +10,7 @@
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import { embedTexts, embedNotes, cosine } from './helmsman-embedding.js'
 
 export const name = 'helmsman-kb'
 export const inject = ['webServer', 'agents', 'sessions', 'helmsmanStorage', 'helmsmanBoard']
@@ -51,6 +52,40 @@ function retrieve(notes, queries, opts = {}) {
   }
   hits.sort((a, b) => b.score - a.score)
   return hits.slice(0, limit).map((h) => ({ note: h.note, score: h.score }))
+}
+
+// ---------- 混合检索（D3-8：server-ts/kb.ts retrieveHybrid 迁移） ----------
+// 规则通道（词命中必过，含新鲜度/信任权重）+ 语义通道（向量相似，词未命中也能进）。
+// 融合分：规则命中条目 = 0.7·规则分 + 0.3·语义分；纯语义条目 = 0.8·语义分。
+// embedding 不可用 → 纯规则结果（降级零破坏）。
+
+/** 语义通道的候选门槛（bge 中文相似度：无关 ~0.3，相关 ~0.6+；0.5 是合理门） */
+const SEMANTIC_THRESHOLD = 0.5
+
+async function retrieveHybrid(notes, queries, queryText, opts = {}) {
+  const limit = opts.limit ?? 5
+  const threshold = opts.threshold ?? 0.15
+  const ruleHits = retrieve(notes, queries, opts)
+  const ruleById = new Map(ruleHits.map((h) => [h.note.id, h.score]))
+
+  const vecs = opts.embedNotes ? await opts.embedNotes(notes) : await embedNotes(notes)
+  if (!vecs || vecs.length !== notes.length) return ruleHits // 笔记向量不可用 → 纯规则
+  const qv = opts.embedQuery ? await opts.embedQuery(queryText) : await embedTexts([queryText], { query: true })
+  if (!qv) return ruleHits
+
+  const q = qv[0]
+  const scored = []
+  notes.forEach((note, i) => {
+    const sim = cosine(q, vecs[i])
+    const rule = ruleById.get(note.id)
+    if (rule != null) {
+      scored.push({ note, score: 0.7 * rule + 0.3 * sim })
+    } else if (sim >= SEMANTIC_THRESHOLD) {
+      scored.push({ note, score: 0.8 * sim })
+    }
+  })
+  scored.sort((a, b) => b.score - a.score)
+  return scored.filter((s) => s.score >= threshold).slice(0, limit)
 }
 
 function makeNote(input) {
@@ -273,19 +308,25 @@ export function apply(ctx) {
     console.log('[helmsman-kb] 自动沉淀已启用（任务 Done → distill → 存库）')
   }
 
-  // GET /api/kb/search?q=&project=
+  // GET /api/kb/search?q=&project= —— 混合检索（规则 + 语义，embedding 不可用自动回落规则）
   webServer.register({
     kind: 'exact',
     path: '/api/kb/search',
-    handler: (req, res) => {
+    handler: async (req, res) => {
       const url = new URL(req.url ?? '', 'http://localhost')
       const q = url.searchParams.get('q') ?? ''
       const project = url.searchParams.get('project')
       const pool = loadNotes(project)
       if (!q.trim()) return json(res, 200, [])
-      const hits = retrieve(pool, deriveQueries(q), { limit: 8 })
-      // 返回完整笔记 + score（前端表格列依赖 tags/source/trust/validUntil）
-      json(res, 200, hits.map((h) => ({ ...h.note, score: h.score })))
+      try {
+        const hits = await retrieveHybrid(pool, deriveQueries(q), q, { limit: 8 })
+        // 返回完整笔记 + score（前端表格列依赖 tags/source/trust/validUntil）
+        json(res, 200, hits.map((h) => ({ ...h.note, score: h.score })))
+      } catch (e) {
+        console.warn('[helmsman-kb] 混合检索失败（回落规则）:', e?.message ?? e)
+        const hits = retrieve(pool, deriveQueries(q), { limit: 8 })
+        json(res, 200, hits.map((h) => ({ ...h.note, score: h.score })))
+      }
     },
   })
 
