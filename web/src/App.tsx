@@ -38,7 +38,9 @@ const VIEW_ITEMS: { id: ViewId; label: string; icon: IconName }[] = [
   { id: 'kb', label: '知识库', icon: 'kb' },
   { id: 'files', label: '文件', icon: 'folder' },
   { id: 'metrics', label: '度量', icon: 'graph' },
-  { id: 'experiment', label: '实验', icon: 'graph' },
+  // 实验（对照实验 A/B）暂隐藏：v2 迁移时为简化版（B 组恒空、compare 契约未对齐），
+  // 后期补全 compareGroup/compareReport 后恢复——加回本行即可（组件/路由/端点均保留）。
+  // { id: 'experiment', label: '实验', icon: 'graph' },
   { id: 'approvals', label: '批复', icon: 'lock' },
 ];
 
