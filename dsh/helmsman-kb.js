@@ -129,9 +129,21 @@ async function distillWithEngine(ctx, input, timeoutMs = 120000) {
     const prompt = buildDistillPrompt(input)
     const { agent, dispose: d } = await ctx.agents.create({
       sessionId: sid,
-      meta: { cwd: input.cwd },
+      // distill 只消费 prompt 文本（任务输出已内联），不接触项目文件：
+      // cwd 指向独立临时目录，避免 agent 拿到主工作区路径后乱改项目文件
+      meta: { cwd: '/tmp' },
       agentOptions: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
-      setup: (agentCtx) => { /* distill 预设：无工具纯文本（D3-4 简化：不挂工具即纯文本） */ },
+      setup: (agentCtx) => {
+        // distill 预设：纯文本提炼，不挂文件/命令工具（D3-6 修复：此前拿到全工具会改项目文件）
+        try {
+          // view() 需要显式 scope：在 agent 的 setup 里传 agentCtx 即当前 agent scope
+          const v = agentCtx.tools?.view?.(agentCtx)
+          const deny = v?.restrictableNames?.size ? [...v.restrictableNames] : ['bash', 'read', 'write', 'edit', 'subagent', 'workflow', 'todo_write', 'skill', 'send_message']
+          agentCtx.tools.restrict({ deny })
+        } catch (e) {
+          console.warn('[helmsman-kb] distill 工具限制失败（不阻断）:', e?.message ?? e)
+        }
+      },
     })
     dispose = d
     agent.followup(createUserMessage({

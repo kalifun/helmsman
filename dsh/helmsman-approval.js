@@ -11,10 +11,23 @@
 //   POST /api/projects/:pid/approvals/resume-all → {ok:true}
 // 超时/进程退出 → fail-closed（返回 'unavailable'，与引擎缺 answerer 语义一致）。
 export const name = 'helmsman-approval'
-export const inject = ['webServer', 'approval', 'helmsmanStorage']
+export const inject = ['webServer', 'approval', 'helmsmanStorage', 'helmsmanAcceptance']
 
 export function apply(ctx) {
   const { webServer } = ctx
+  const storage = ctx.get('helmsmanStorage')?.storage
+  const acceptance = ctx.get('helmsmanAcceptance')
+  // 验收门挂起的任务 → 卡/标题查找（投影）
+  const acceptanceLookup = (sid) => {
+    const board = ctx.get('helmsmanBoard')
+    const pid = board?.projection?.sessionProject?.[sid]
+    if (!pid) return null
+    const cardId = board?.projection?.sessionCard?.[sid]
+    const proj = board?.projection?.projects?.[pid]
+    if (!proj) return null
+    const t = cardId ? proj.cards?.[cardId]?.executions?.[sid] : proj.chats?.[sid]
+    return { pid, cardId, t, card: cardId ? proj.cards?.[cardId] : undefined }
+  }
   const pending = new Map() // id → { req, resolve, timer, at, project_id }
   const resolved = [] // 已决策记录（最近 50 条，供列表回显）
   let seq = 0
@@ -56,6 +69,28 @@ export function apply(ctx) {
         project_id: p.project_id,
         created_at: p.at,
       })).filter((a) => !pid || a.project_id === pid)
+      // 合并 storage 里的 acceptance 待批项（验收门挂起；前端契约字段补齐）
+      if (storage) {
+        const pendingKinds = new Set(list.map((a) => a.sid))
+        for (const a of storage.listPendingApprovals(pid ?? '')) {
+          if (a.kind !== 'acceptance') continue
+          if (pendingKinds.has(a.execution_id)) continue
+          const found = acceptanceLookup?.(a.execution_id)
+          list.push({
+            id: a.id,
+            project_id: a.project_id,
+            execution_id: a.execution_id,
+            kind: a.kind,
+            payload: a.payload,
+            reason: a.reason,
+            status: 'pending',
+            created_at: a.created_at,
+            task_title: found?.card?.title ?? found?.t?.title ?? a.execution_id.slice(0, 16),
+            card_id: found?.cardId ?? null,
+            card_kind: found?.card?.kind ?? null,
+          })
+        }
+      }
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify(list))
     },
@@ -115,13 +150,35 @@ export function apply(ctx) {
         try {
           const body = JSON.parse(buf || '{}')
           const id = Number(m[1])
+          const outcome = body.outcome === 'rejected' ? 'rejected' : 'approved'
+          // acceptance 审批（验收门挂起，storage 持久化）：批准 → merge worktree；拒绝 → 清等待
+          const appr = storage?.getApproval(id)
+          if (appr && appr.kind === 'acceptance') {
+            if (!storage.decideApproval(id, outcome, typeof body.comment === 'string' ? body.comment : null)) {
+              return json(409, { error: 'already decided' })
+            }
+            if (outcome === 'approved') {
+              const mr = acceptance?.approveMerge(appr.execution_id)
+              if (mr && !mr.ok) {
+                // merge 失败：不吞掉 —— 回滚批复状态？v1 语义：409 且保持待批复。
+                // 简化：批复已落库，但明确报错提示人工处理 worktree。
+                console.warn(`[helmsman-approval] acceptance ${id} 批准但 merge 失败: ${mr.message}`)
+                return json(200, { ok: true, decision: outcome, merge_error: mr.message })
+              }
+              console.log(`[helmsman-approval] acceptance ${id} 批准 → merge`)
+            } else {
+              acceptance?.rejectClear(appr.execution_id)
+              console.log(`[helmsman-approval] acceptance ${id} 拒绝（worktree 保留）`)
+            }
+            return json(200, { ok: true, decision: outcome })
+          }
           const entry = pending.get(id)
           if (!entry) return json(404, { error: 'unknown id' })
           clearTimeout(entry.timer)
           pending.delete(id)
           // 前端 outcome: 'approved'|'rejected' → 引擎 ApprovalOutcome
-          const outcome = body.outcome === 'rejected' ? 'rejected' : 'allowed-once'
-          entry.resolve(outcome)
+          const engineOutcome = body.outcome === 'rejected' ? 'rejected' : 'allowed-once'
+          entry.resolve(engineOutcome)
           resolved.unshift({
             id, project_id: entry.project_id, sid: entry.req.agent?.id,
             tool_name: entry.req.toolName, reason: entry.req.reason,
@@ -147,7 +204,6 @@ export function apply(ctx) {
   // （避免跨插件 prefix 路由冲突）。注：B1 简化 —— 无挂起恢复语义，返回 ok。
 
   // ---------- 策略沉淀（P1 O6：SQLite 持久化） ----------
-  const storage = ctx.get('helmsmanStorage')?.storage
   const rememberPolicy = (project_id, tool_name, outcome) => {
     if (storage) return storage.learnPolicy(project_id, 'tool', tool_name, outcome)
     return null

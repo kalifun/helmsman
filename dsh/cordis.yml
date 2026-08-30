@@ -190,6 +190,10 @@
 - id: helmsman-tasks
   name: ./helmsman-tasks.js
 
+# 验收门：任务 Done → 跑验收命令 + 拍 git 证据 → 挂起 acceptance 审批（delivery）或直接 merge。
+- id: helmsman-acceptance
+  name: ./helmsman-acceptance.js
+
 # 审批通道：approval/request waterfall answerer（guard 拦截 → 队列 → HTTP 批复）。
 - id: helmsman-approval
   name: ./helmsman-approval.js

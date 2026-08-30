@@ -83,7 +83,7 @@ server-ts/   v1 独立产品服务（已停用：被引擎插件替代，保留�
 - [x] P1·序列任务曲线（度量页按执行时序 + 对照实验 A/B 分组）
 - [x] P1·沉淀提炼 Agent（distill 预设 + 独立 ACP 会话，主对话零污染；规则版兜底）
 - [x] P1·策略学习·命令级白名单（rm/sudo/git push 精确匹配 → 批复队列决策，拒绝幂等走策略沉淀；yolo 轴跳过）
-- [x] P2·向量检索（bge-small-zh 本地 embedding，混合检索：规则 + 语义通道）
+- [x] P2·向量检索（v1 完成：bge-small-zh 本地 embedding，混合检索；插件化迁移后暂为纯规则版，语义通道见「迁移缺口补完」）
 - [x] P2·知识演化（沉淀前防重复 + 库内自动合并 + 毒化检测）
 - [x] P2·文件内容预览（读取接口 + 语法高亮 + Markdown 渲染）
 - [x] P2·设置热更新（检索阈值 / 装配条数，storage 持久化无需重启）
@@ -102,6 +102,11 @@ server-ts/   v1 独立产品服务（已停用：被引擎插件替代，保留�
 - [x] B1 API 面补齐：28 端点全验收（projects/cards/tasks/chats/approvals/kb/metrics/experiments/fs/presets）
 - [x] B2 前端切换：Vite proxy → 引擎，WS/SSE 实时事件流，CDP 实测页面渲染正常
 - [ ] server-ts 退役清理（稳定后删除 v1 独立服务，历史保留于 archive 分支）
+
+**迁移缺口补完（v1 能力在插件化时未随迁，2026-08 盘点）**：
+- [x] D3-6 验收门迁入：`evidence.ts`（任务 Done 拍 git 快照给审批人看）+ `verify.ts`（跑卡验收命令，退出码判定）→ 补进审批流程
+- [ ] D3-7 成本定价迁入：`pricing.ts` 峰谷定价 → metrics `cost` 真实化（当前硬编码 0，度量曲线无意义）
+- [ ] D3-8 向量检索迁入：`embedding.ts`（bge-small-zh 语义通道）→ 恢复混合检索（当前仅规则版）
 
 > 状态核对基准：2026-08 按代码核实（README 复选框为快照，接口/服务演进以仓库为准）。
 
