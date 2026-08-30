@@ -205,8 +205,16 @@ function recoverStore(root, proj, defaultProject, cardOfSession) {
   }
 
   // 折叠事件。
+  // text-chunks/reasoning-chunks 是 JSONL 存储编码（增量打包），与 assistant/chunk
+  // block-end（完整文本）是同一文本的重复传输（v1 projection 注释）。实时流只有
+  // block-end；重放时两者都在 → 若都 fold 会双倍累积文本（重启后会话输出重复）。
+  // 重放只取 block-end 通道，跳过存储编码事件。
+  const REPLAY_SKIP = new Set(['text-chunks', 'reasoning-chunks'])
   for (const [sid, events] of eventsBySid) {
-    for (const ev of events) foldSession(proj, sid, ev)
+    for (const ev of events) {
+      if (REPLAY_SKIP.has(ev.type)) continue
+      foldSession(proj, sid, ev)
+    }
     const cardId = proj.sessionCard[sid]
     const pid = proj.sessionProject[sid]
     const card = pid ? proj.projects[pid]?.cards[cardId] : undefined
