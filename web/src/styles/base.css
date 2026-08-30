@@ -922,12 +922,16 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
   flex: 1; overflow-y: auto; padding: 20px 26px;
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
 }
-/* 代码块预览：IDE 式 —— 代码块撑满头部下方空间，整体内部滚动（无底部空白） */
+/* 代码块预览：内容自适应高度（preview/codeblock 同高，无中间空白）；
+   长代码 codeblock-body 内部滚动（bar 固定，代码行滚动） */
 .fx-main .fx-preview:has(.codeblock) {
-  margin-top: 14px; height: calc(100% - 60px);
+  margin-top: 14px;
 }
 .fx-main .fx-preview:has(.codeblock) .codeblock {
-  height: 100%; margin: 0; overflow-y: auto;
+  margin: 0;
+}
+.fx-main .fx-preview:has(.codeblock) .codeblock-body {
+  max-height: 60vh; overflow-y: auto;
 }
 /* md 预览：流式内容自适应，短内容垂直居中 */
 .fx-main .fx-preview:not(:has(.codeblock)) {
@@ -2052,15 +2056,12 @@ details.settings .row .dim { color: var(--text3); font-family: var(--mono); font
 
 /* --- 文件预览（FilesView P2：读取接口已开）--- */
 .fx-preview { margin-top: 14px; max-width: 100%; }
-.fx-preview .codeblock { max-height: 60vh; overflow-y: auto; }
 
 /* --- 轻量语法高亮（零依赖，CodeBlock 普通视图）--- */
 .hl-str { color: var(--green); }
 .hl-com { color: var(--text3); font-style: italic; }
 .hl-kw { color: var(--blue); font-weight: 500; }
 .hl-num { color: var(--yellow); }
-/* 文件预览：外层容器滚动，内层不再 320px 截断 */
-.fx-preview .codeblock-body { max-height: none; }
 
 /* 无行号模式（文件预览）：代码直接铺满，不留行号列 */
 .codeblock-body.noline .codeblock-line { display: block; }
