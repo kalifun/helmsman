@@ -19,7 +19,7 @@ export function apply(ctx) {
 
   ctx.provide('helmsmanTasks', {
     /** 建任务：引擎内 agents.create + 首条指令（sendBrief=false 则不发送，等后续输入）。返回 {sid, isolated}。 */
-    async createTask({ cwd, brief, preset, project_id, card_id, sendBrief = true }) {
+    async createTask({ cwd, brief, preset, project_id, card_id, sendBrief = true, internalize = false }) {
       const sid = SessionId(`task-${randomUUID().slice(0, 12)}`)
       const pid = project_id ?? 'default'
       // 任务级隔离：git 仓库 → worktree（agent 在隔离区跑，不写主工作区）；非 git/失败回退项目目录
@@ -88,6 +88,7 @@ export function apply(ctx) {
               taskDescription: '',
               projectId: pid,
               brief: true,
+              internalize,
             })
             if (assembled) {
               promptText = assembled.prompt

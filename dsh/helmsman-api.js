@@ -773,8 +773,12 @@ export function apply(ctx) {
           if (!p) return json(res, 404, { error: 'project not found' })
           if (!Array.isArray(body.tasks) || body.tasks.length === 0) return json(res, 400, { error: 'tasks required' })
           const brief = body.brief !== false
-          const group = brief ? 'A' : 'B'
-          const name = typeof body.name === 'string' && body.name ? body.name : brief ? 'A 带装配' : 'B 裸跑'
+          // internalize：true = 内化模式（B 组对照，WikiSkill 对比实验）——
+          // 命中编译成项目技能手册直接内嵌；false = 查 Wiki 装配（A 组）
+          const internalize = body.internalize === true
+          const group = internalize ? 'B' : brief ? 'A' : 'C'
+          const name = typeof body.name === 'string' && body.name ? body.name
+            : internalize ? 'B 内化技能' : brief ? 'A 查知识库' : 'C 裸跑'
           const created = []
           for (const t of body.tasks) {
             const title = typeof t?.title === 'string' ? t.title.trim() : ''
@@ -790,11 +794,20 @@ export function apply(ctx) {
               deps: [],
               created_at: Date.now(),
             })
+            // SQLite 落卡（createTask 的 execution FK 依赖 cards 表）
+            if (storage) storage.upsertCard({
+              id: cardId, project_id: p.id, title,
+              description: typeof t?.description === 'string' ? t.description : '',
+              kind: 'task', milestone: null,
+              criteria: typeof t?.acceptance === 'string' && t.acceptance.trim() ? t.acceptance.trim() : null,
+              deps: [], budget: null, created_at: Date.now(),
+            })
             const { sid } = await tasks.createTask({
               cwd: p.path,
               brief: title,
               project_id: p.id,
               card_id: cardId,
+              internalize,
             })
             created.push({ card_id: cardId, session_id: sid, title })
           }

@@ -182,6 +182,30 @@ function renderBriefPrompt(brief, projectStableNotes = []) {
   return lines.join('\n')
 }
 
+/** 内化模式（WikiSkill 对比实验 B 组）：命中条目编译成"项目技能手册"直接内嵌。
+ * 与 renderBriefPrompt 的区别：这里给完整流程（content 全文）而非仅标题+分数，
+ * 并显式标注"按此流程执行"，模拟"技能已内化"（不走逐次检索）。 */
+function renderInternalizedSkill(taskTitle, kbHits) {
+  const lines = []
+  lines.push(`任务：${taskTitle}`)
+  lines.push('')
+  if (kbHits.length === 0) {
+    lines.push('（项目知识库暂无相关条目，按任务说明自行完成）')
+    return lines.join('\n')
+  }
+  lines.push('—— 项目技能手册（来自知识库沉淀，按此流程执行，不要跳过）——')
+  for (const h of kbHits) {
+    lines.push(`## ${h.title}`)
+    for (const c of h.content ?? []) lines.push(`- ${c}`)
+    if (h.applicability) lines.push(`适用：${h.applicability}`)
+    if (h.antiPatterns?.length > 0) {
+      lines.push('禁忌：')
+      for (const a of h.antiPatterns) lines.push(`  ✗ ${a}`)
+    }
+  }
+  return lines.join('\n')
+}
+
 function makeNote(input) {
   const t = Date.now()
   return {
@@ -540,7 +564,7 @@ export function apply(ctx) {
   // ---------- 内部服务：helmsmanKb（供 helmsman-tasks 任务启动装配） ----------
   ctx.provide('helmsmanKb', {
     /** 任务启动装配：项目笔记 + 历史度量 → {prompt, kbHits}。 */
-    async assembleTaskPromptFull({ taskTitle, taskDescription, projectId, brief = true }) {
+    async assembleTaskPromptFull({ taskTitle, taskDescription, projectId, brief = true, internalize = false }) {
       const pool = loadNotes(projectId)
       const metrics = storage ? storage.listMetrics(projectId) : []
       if (brief === false) return { prompt: `${taskTitle ?? ''}\n\n${taskDescription ?? ''}`.trim(), kbHits: [] }
@@ -558,6 +582,11 @@ export function apply(ctx) {
         maxKbEntries: 5,
         demote,
       })
+      if (internalize) {
+        // 内化模式（WikiSkill 对比实验 B 组）：把命中条目编译成"项目技能手册"
+        // 直接内嵌（完整流程 + 反模式 + 适用条件），任务按手册执行而非逐次检索。
+        return { prompt: renderInternalizedSkill(taskTitle ?? '', brief2.kbHits), kbHits: brief2.kbHits, internalized: true }
+      }
       return { prompt: renderBriefPrompt(brief2, stableNotes), kbHits: brief2.kbHits }
     },
     /** 仅 prompt（兼容旧签名）。 */
