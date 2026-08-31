@@ -185,7 +185,11 @@ function renderBriefPrompt(brief, projectStableNotes = []) {
 /** 内化模式（WikiSkill 对比实验 B 组）：命中条目编译成"项目技能手册"直接内嵌。
  * 与 renderBriefPrompt 的区别：这里给完整流程（content 全文）而非仅标题+分数，
  * 并显式标注"按此流程执行"，模拟"技能已内化"（不走逐次检索）。 */
-function renderInternalizedSkill(taskTitle, kbHits) {
+/** 内化模式（WikiSkill 对比实验 B 组）：命中条目编译成"项目技能手册"直接内嵌。
+ * 与 renderBriefPrompt 的区别：这里给完整流程（content 全文）而非仅标题+分数，
+ * 并显式标注"按此流程执行"，模拟"技能已内化"（不走逐次检索）。
+ * v2（扩样本后修正）：加聚焦指令防"过度执行"——手册只作参考，不扩展任务范围。 */
+function renderInternalizedSkill(taskTitle, kbHits, opts = {}) {
   const lines = []
   lines.push(`任务：${taskTitle}`)
   lines.push('')
@@ -193,9 +197,13 @@ function renderInternalizedSkill(taskTitle, kbHits) {
     lines.push('（项目知识库暂无相关条目，按任务说明自行完成）')
     return lines.join('\n')
   }
-  lines.push('—— 项目技能手册（来自知识库沉淀，按此流程执行，不要跳过）——')
-  for (const h of kbHits) {
-    lines.push(`## ${h.title}`)
+  // 按相关度裁剪：只注入命中分最高的前 N 条（防整本手册导致过度执行）
+  const maxEntries = opts.maxEntries ?? 3
+  const top = [...kbHits].sort((a, b) => b.score - a.score).slice(0, maxEntries)
+  lines.push('—— 项目技能手册（来自知识库沉淀）——')
+  lines.push('使用原则：仅当条目与当前任务直接相关时参考其流程；不要因手册内容扩展任务范围，按任务要求完成即可。')
+  for (const h of top) {
+    lines.push(`## ${h.title}（相关度 ${h.score}）`)
     for (const c of h.content ?? []) lines.push(`- ${c}`)
     if (h.applicability) lines.push(`适用：${h.applicability}`)
     if (h.antiPatterns?.length > 0) {
@@ -585,7 +593,7 @@ export function apply(ctx) {
       if (internalize) {
         // 内化模式（WikiSkill 对比实验 B 组）：把命中条目编译成"项目技能手册"
         // 直接内嵌（完整流程 + 反模式 + 适用条件），任务按手册执行而非逐次检索。
-        return { prompt: renderInternalizedSkill(taskTitle ?? '', brief2.kbHits), kbHits: brief2.kbHits, internalized: true }
+        return { prompt: renderInternalizedSkill(taskTitle ?? '', brief2.kbHits, { maxEntries: 3 }), kbHits: brief2.kbHits, internalized: true }
       }
       return { prompt: renderBriefPrompt(brief2, stableNotes), kbHits: brief2.kbHits }
     },
