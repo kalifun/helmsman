@@ -109,6 +109,8 @@ web/         React 前端（经 Vite proxy 直连引擎 3081）
 - [x] D3-8 向量检索迁入：`embedding.ts`（bge-small-zh 语义通道）→ 恢复混合检索（当前仅规则版）
 - [x] D3-9 上下文装配迁入：`assembly.ts` → 任务启动混合检索命中 + 稳定前缀块装配进首条 prompt（债务降权；简报快照进 metrics，前端简报 tab 展示）
 
+**设计参考（2026-09）：[WikiSkill](https://arxiv.org/abs/2608.27454)（Google，arXiv:2608.27454）**——agent 经验编译进持久知识层让技能越用越强（Raw 轨迹 / Wiki 模式+反模式+适用条件 / Skills 可执行手册 三层）。已落地轻档：知识条目新增 `anti_patterns`（反模式）+ `applicability`（适用条件），distill 自动提炼、装配时随命中注入、前端详情展示。关键结论待办：执行端应跑"内化 Skill"而非直接查 Wiki（推理时开放 Wiki 访问反而降泛化）——对应未来"知识→项目级可执行 Skill"层。
+
 > 状态核对基准：2026-08 按代码核实（README 复选框为快照，接口/服务演进以仓库为准）。
 
 ## 📄 许可

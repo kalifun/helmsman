@@ -406,6 +406,8 @@ export interface KbNoteRow {
   tags: string[];
   keywords: string[];
   summary: string;
+  antiPatterns?: string[];
+  applicability?: string;
   source: { kind: string; ref: string };
   validFrom: number;
   validUntil: number | null;

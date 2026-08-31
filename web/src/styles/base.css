@@ -553,6 +553,12 @@ path.g-edge.hl { stroke: var(--blue); stroke-width: 2; }
 .kb-item-meta { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .note-meta { font-size: 11.5px; color: var(--text3); margin: 6px 0 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .note-keywords { margin-top: 12px; display: flex; gap: 4px; flex-wrap: wrap; }
+/* WikiSkill 启示：适用条件 + 反模式（防误用/防重复踩坑） */
+.note-applicability { margin-top: 12px; font-size: 12.5px; color: var(--text2); background: var(--bg-blue); border-radius: var(--r-sm); padding: 7px 10px; }
+.note-antipatterns { margin-top: 10px; font-size: 12.5px; background: var(--bg-red); border-radius: var(--r-sm); padding: 8px 10px; }
+.note-antipatterns .t { font-weight: 600; color: var(--red); font-size: 11.5px; margin-bottom: 4px; }
+.note-antipatterns ul { margin: 0; padding-left: 16px; color: var(--text2); }
+.note-antipatterns li { margin: 2px 0; line-height: 1.5; }
 .kb-note:hover { background: var(--bg-gray); }
 .kb-note.sel { background: var(--bg-gray); }
 .kb-note .t { font-size: 13px; font-weight: 500; }

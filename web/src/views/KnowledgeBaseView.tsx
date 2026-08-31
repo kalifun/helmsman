@@ -238,6 +238,15 @@ export function KnowledgeBaseView({ pid }: { pid: string }) {
               {selected.keywords.length > 0 && (
                 <div className="note-keywords">{selected.keywords.map((k) => <span key={k} className="tag">{k}</span>)}</div>
               )}
+              {selected.applicability ? (
+                <div className="note-applicability">适用：{selected.applicability}</div>
+              ) : null}
+              {selected.antiPatterns && selected.antiPatterns.length > 0 ? (
+                <div className="note-antipatterns">
+                  <div className="t">禁忌 / 反模式</div>
+                  <ul>{selected.antiPatterns.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                </div>
+              ) : null}
               {selected.validUntil === null && (
                 <div style={{ marginTop: 18, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <Button variant="ghost" mini disabled={busy} onClick={() => void pin(selected, !isPinned(selected))}>

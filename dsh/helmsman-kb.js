@@ -150,6 +150,9 @@ async function assembleBrief({ taskTitle, taskDescription, notes, threshold = 0.
       title: h.note.title,
       score: Math.round(h.score * 100) / 100,
       trust: h.note.trust,
+      content: h.note.content ?? [],
+      antiPatterns: h.note.antiPatterns ?? [],
+      applicability: h.note.applicability ?? '',
     })),
   }
 }
@@ -170,6 +173,10 @@ function renderBriefPrompt(brief, projectStableNotes = []) {
     lines.push('', '—— 与本任务相关的知识库条目（按相关度排序）——')
     for (const h of brief.kbHits) {
       lines.push(`[${h.score}] ${h.title}`)
+      if (h.applicability) lines.push(`    适用：${h.applicability.slice(0, 160)}`)
+      if (h.antiPatterns?.length > 0) {
+        lines.push(`    禁忌：${h.antiPatterns.slice(0, 3).join('；').slice(0, 200)}`)
+      }
     }
   }
   return lines.join('\n')
@@ -185,6 +192,8 @@ function makeNote(input) {
     tags: input.tags ?? [],
     keywords: input.keywords ?? [],
     summary: input.summary ?? '',
+    antiPatterns: input.antiPatterns ?? [],
+    applicability: input.applicability ?? '',
     links: input.links ?? [],
     source: { kind: input.sourceKind, ref: input.sourceRef },
     validFrom: t,
@@ -212,7 +221,8 @@ function buildDistillPrompt(input) {
   }
   lines.push('')
   lines.push('请从任务输出中提炼一条结构化知识条目，严格输出 JSON：')
-  lines.push('{"title":"简短标题","content":["要点1","要点2"],"keywords":["k1","k2"],"summary":"一句话总结"}')
+  lines.push('{"title":"简短标题","content":["要点1","要点2"],"keywords":["k1","k2"],"summary":"一句话总结","anti_patterns":["踩过的坑/禁忌（如无则空数组）"],"applicability":"这条知识在什么场景下适用（如无则空字符串）"}')
+  lines.push('若任务输出包含"别这样做"的经验（踩坑、失败原因、禁忌），提炼进 anti_patterns；applicability 说明适用边界，防误用。')
   lines.push('若无值得沉淀的知识，输出 {"title":""}。只输出 JSON，不要其他文字。')
   return lines.join('\n')
 }
@@ -232,6 +242,8 @@ function parseDistillJson(text) {
       content: Array.isArray(obj.content) ? obj.content.filter((x) => typeof x === 'string').slice(0, 20) : [],
       keywords: Array.isArray(obj.keywords) ? obj.keywords.filter((x) => typeof x === 'string').slice(0, 10) : [],
       summary: typeof obj.summary === 'string' ? obj.summary : '',
+      antiPatterns: Array.isArray(obj.anti_patterns) ? obj.anti_patterns.filter((x) => typeof x === 'string').slice(0, 6) : [],
+      applicability: typeof obj.applicability === 'string' ? obj.applicability : '',
     }
   } catch {
     return null
@@ -363,6 +375,7 @@ export function apply(ctx) {
             note = makeNote({
               projectId: pid, title: result.title, content: result.content,
               tags: [], keywords: result.keywords, summary: result.summary,
+              antiPatterns: result.antiPatterns ?? [], applicability: result.applicability ?? '',
               sourceKind: 'task', sourceRef: sid, trust: 'agent-generated',
             })
             console.log(`[helmsman-kb] 自动沉淀「${result.title}」（任务 ${title.slice(0, 24)}）`)

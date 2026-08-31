@@ -105,6 +105,8 @@ class Storage {
         tags_json     TEXT NOT NULL DEFAULT '[]',
         keywords_json TEXT NOT NULL DEFAULT '[]',
         summary       TEXT NOT NULL DEFAULT '',
+        anti_patterns_json TEXT NOT NULL DEFAULT '[]',  -- \u53CD\u6A21\u5F0F\uFF08WikiSkill\u542F\u793A\uFF1A\u5751/\u7981\u5FCC\uFF09
+        applicability TEXT NOT NULL DEFAULT '',         -- \u9002\u7528\u6761\u4EF6\uFF08\u4EC0\u4E48\u65F6\u5019\u8BE5\u7528\u8FD9\u6761\u77E5\u8BC6\uFF09
         links_json    TEXT NOT NULL DEFAULT '[]',
         source_kind   TEXT NOT NULL,            -- 'task' | 'subagent' | 'human' | 'project'
         source_ref    TEXT NOT NULL,            -- \u5361/\u4F1A\u8BDD/\u9879\u76EE id
@@ -195,6 +197,15 @@ class Storage {
     if (!exCols.some((c) => c.name === "worktree_path")) {
       this.db.exec(`ALTER TABLE executions ADD COLUMN worktree_path TEXT`);
       this.db.exec(`ALTER TABLE executions ADD COLUMN worktree_branch TEXT`);
+    }
+    // WikiSkill 启示：知识条目补反模式 + 适用条件（老库 ALTER 迁移）
+    const kbCols = this.db.prepare(`SELECT name FROM pragma_table_info('kb_notes')`).all();
+    const kbHave = new Set(kbCols.map((c) => c.name));
+    if (!kbHave.has("anti_patterns_json")) {
+      this.db.exec(`ALTER TABLE kb_notes ADD COLUMN anti_patterns_json TEXT NOT NULL DEFAULT '[]'`);
+    }
+    if (!kbHave.has("applicability")) {
+      this.db.exec(`ALTER TABLE kb_notes ADD COLUMN applicability TEXT NOT NULL DEFAULT ''`);
     }
   }
   // ---------- 项目 ----------
@@ -311,11 +322,13 @@ class Storage {
     const t = Date.now();
     this.db.prepare(
       `INSERT INTO kb_notes (id, project_id, title, content_json, tags_json, keywords_json, summary,
-           links_json, source_kind, source_ref, valid_from, valid_until, invalidated_by, version, trust, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           anti_patterns_json, applicability, links_json, source_kind, source_ref, valid_from, valid_until, invalidated_by, version, trust, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title=excluded.title, content_json=excluded.content_json, tags_json=excluded.tags_json,
-           keywords_json=excluded.keywords_json, summary=excluded.summary, links_json=excluded.links_json,
+           keywords_json=excluded.keywords_json, summary=excluded.summary,
+           anti_patterns_json=excluded.anti_patterns_json, applicability=excluded.applicability,
+           links_json=excluded.links_json,
            valid_until=excluded.valid_until, invalidated_by=excluded.invalidated_by,
            version=excluded.version, trust=excluded.trust, updated_at=excluded.updated_at`
     ).run(
@@ -326,6 +339,8 @@ class Storage {
       JSON.stringify(n.tags),
       JSON.stringify(n.keywords),
       n.summary,
+      JSON.stringify(n.antiPatterns ?? []),
+      n.applicability ?? '',
       JSON.stringify(n.links),
       n.source.kind,
       n.source.ref,
@@ -603,6 +618,8 @@ function rowToNote(r) {
     tags: parse(r.tags_json),
     keywords: parse(r.keywords_json),
     summary: r.summary ?? "",
+    antiPatterns: parse(r.anti_patterns_json),
+    applicability: r.applicability ?? "",
     links: parse(r.links_json),
     source: { kind: r.source_kind, ref: r.source_ref },
     validFrom: r.valid_from,
