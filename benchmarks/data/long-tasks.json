@@ -1,0 +1,69 @@
+[
+  {
+    "id": "lt-1",
+    "title": "审计并修复项目配置",
+    "steps": [
+      "列出项目所有文件",
+      "读取 package.json 和配置文件",
+      "创建 CONFIG-REVIEW.md 记录发现的问题",
+      "修复配置中的明显错误",
+      "验证修复结果"
+    ],
+    "acceptance": "test -f CONFIG-REVIEW.md && grep -q 'package.json' CONFIG-REVIEW.md"
+  },
+  {
+    "id": "lt-2",
+    "title": "编写多模块文档",
+    "steps": [
+      "读取所有源码文件了解结构",
+      "为每个模块编写文档到 docs/",
+      "创建总览 README-OVERVIEW.md",
+      "在总览中链接各模块文档"
+    ],
+    "acceptance": "test -f README-OVERVIEW.md && grep -q 'docs' README-OVERVIEW.md"
+  },
+  {
+    "id": "lt-3",
+    "title": "重构脚本并验证",
+    "steps": [
+      "读取现有脚本",
+      "识别重复代码",
+      "重构为函数并拆分",
+      "运行验证脚本确认无回归"
+    ],
+    "acceptance": "test -f refactored.sh && grep -q 'function' refactored.sh"
+  },
+  {
+    "id": "lt-4",
+    "title": "数据文件批量处理",
+    "steps": [
+      "列出 data 目录所有文件",
+      "读取每个文件内容",
+      "汇总统计到 summary.txt",
+      "生成处理报告"
+    ],
+    "acceptance": "test -f summary.txt && test -f report.md"
+  },
+  {
+    "id": "lt-5",
+    "title": "环境检查与配置生成",
+    "steps": [
+      "检查环境（node/git/pnpm 版本）",
+      "读取现有配置",
+      "生成 .env.example",
+      "编写配置说明 README-CONFIG.md"
+    ],
+    "acceptance": "test -f .env.example && grep -q 'PORT' .env.example"
+  },
+  {
+    "id": "lt-6",
+    "title": "测试用例补齐",
+    "steps": [
+      "读取被测源码",
+      "分析测试缺口",
+      "编写测试用例文件",
+      "运行测试确认通过"
+    ],
+    "acceptance": "test -f tests/extra.test.js && grep -q 'test(' tests/extra.test.js"
+  }
+]

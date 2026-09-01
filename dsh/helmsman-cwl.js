@@ -23,65 +23,6 @@ export const inject = ['webServer', 'agents', 'sessions', 'helmsmanBoard', 'helm
  * @param {Array} events - session.events
  * @returns {Array} [{name, type, startSeq, endSeq, completed, toolSeqs, readPaths}]
  */
-export function deriveEpisodes(events) {
-  const EXPL_TOOLS = new Set(['read', 'search', 'list', 'ls', 'glob', 'grep', 'find', 'web_search'])
-  const ACT_TOOLS = new Set(['bash', 'edit', 'write', 'apply_patch', 'run', 'exec'])
-  const episodes = []
-  let explCount = 0
-  let actCount = 0
-  const openExpls = []
-  // 跟踪每步的工具调用范围（tool/call → tool/result），合并连续调用为一段
-  let currentCall = null // {callSeq, resultSeq, name, args, isExpl}
-  const openCalls = new Map() // callId → {seq, name, args, isExpl}
-
-  for (const ev of events) {
-    const type = ev?.type
-    const data = ev.data ?? {}
-    if (type === 'tool/call') {
-      const name = data.name
-      const isExpl = EXPL_TOOLS.has(name)
-      openCalls.set(data.callId ?? ev.seq, { seq: ev.seq, name, args: data.arguments, isExpl })
-    } else if (type === 'tool/result') {
-      const callId = data.message?.source?.callId ?? data.callId
-      const call = openCalls.get(callId) ?? openCalls.get(ev.seq)
-      if (!call) continue
-      openCalls.delete(callId ?? ev.seq)
-      const isExpl = call.isExpl
-      if (isExpl) {
-        explCount += 1
-        episodes.push({
-          name: `expl-${explCount}`,
-          type: 'expl',
-          startSeq: ev.seq,
-          endSeq: ev.seq,
-          completed: true,
-          toolSeqs: [call.seq, ev.seq],
-          readPaths: collectReadPaths(call.name, call.args),
-          deps: [],
-        })
-        openExpls.push(episodes[episodes.length - 1])
-      } else {
-        actCount += 1
-        const deps = openExpls.length > 0 ? [openExpls[openExpls.length - 1].name] : []
-        episodes.push({
-          name: `act-${actCount}`,
-          type: 'act',
-          // surface 只含 user/message、assistant/message、tool/result；驱逐范围必须用这些事件
-          startSeq: ev.seq,   // tool/result seq（surface 节点）
-          endSeq: ev.seq,     // 单工具调用段 = 该 tool/result
-          completed: true,
-          toolSeqs: [call.seq, ev.seq],
-          deps,
-          readPaths: [],
-        })
-      }
-    }
-  }
-  // 按 startSeq 排序
-  episodes.sort((a, b) => a.startSeq - b.startSeq)
-  return episodes
-}
-
 /** 从工具参数提取被读的文件路径（供驱逐后可恢复）。 */
 function collectReadPaths(toolName, argsRaw) {
   if (toolName !== 'read' && toolName !== 'search') return []
@@ -94,44 +35,66 @@ function collectReadPaths(toolName, argsRaw) {
   }
 }
 
-/**
- * 驱逐决策：给定 episodes + 预算，选出要驱逐的段（最老已完成 act，依赖约束）。
- * @param {Array} episodes - deriveEpisodes 结果
- * @param {number} overage - 超出预算的 token 数（需剥除的量）
- * @returns {Array} 被驱逐的 episode（按驱逐顺序）
- */
-export function planEviction(episodes, overage) {
-  const evicted = []
-  // 驱逐候选：已完成且依赖者已驱逐的 act
-  const evictedNames = new Set()
-  let stillOver = overage > 0
-  let guard = 0
-  while (stillOver && guard++ < 50) {
-    // 找最老的可驱逐 act（按 startSeq）
-    let candidate = null
-    for (const ep of episodes) {
-      if (ep.type !== 'act') continue
-      if (!ep.completed) continue
-      if (evictedNames.has(ep.name)) continue
-      // 依赖的 expl 必须已驱逐（或该 expl 不在驱逐列表）
-      const depsOk = (ep.deps ?? []).every((d) => {
-        // expl 依赖：若 expl 还没被驱逐，驱逐它不破坏 act 依赖（expl 是上下文不是结果）
-        return true
-      })
-      if (!depsOk) continue
-      if (candidate === null || ep.startSeq < candidate.startSeq) candidate = ep
-    }
-    if (!candidate) break
-    evictedNames.add(candidate.name)
-    evicted.push(candidate)
-    stillOver = false // 简化：驱逐数量由调用方按 token 估算循环控制
-  }
-  return evicted
-}
+export function deriveEpisodes(events) {
+  // episode 基于 surface 事件（assistant/message + tool/result）推导：
+  //  - act：assistant/message 含 tool-call 块 → 其后续 tool/result 序列（完整工具段）
+  //  - expl：read/search 类工具段
+  // 驱逐范围 = [assistant/message seq, 最后 tool/result seq]（配对完整，可安全遮蔽）
+  const EXPL_TOOLS = new Set(['read', 'search', 'list', 'ls', 'glob', 'grep', 'find', 'web_search'])
+  const episodes = []
+  let explCount = 0
+  let actCount = 0
+  let openAct = null // 当前打开的 act（等待 tool/result 收尾）
+  let pendingResults = 0 // 该 act 待收的 tool/result 数
 
-/** 事件是否属于被驱逐段（用于过滤）。 */
-export function isInEvictedRange(seq, evictedSeqs) {
-  return evictedSeqs.has(seq)
+  for (const ev of events) {
+    const type = ev?.type
+    const data = ev.data ?? {}
+    if (type === 'assistant/message') {
+      const content = data.message?.content ?? []
+      const toolCalls = content.filter((b) => b?.type === 'tool-call')
+      if (toolCalls.length === 0) continue
+      const isExpl = toolCalls.every((b) => EXPL_TOOLS.has(b.name))
+      pendingResults = toolCalls.length
+      if (isExpl) {
+        explCount += 1
+        episodes.push({
+          name: `expl-${explCount}`,
+          type: 'expl',
+          startSeq: ev.seq,
+          endSeq: null, // 待 tool/result 填
+          completed: false,
+          toolNames: toolCalls.map((b) => b.name),
+          readPaths: toolCalls.flatMap((b) => collectReadPaths(b.name, b.arguments)),
+          deps: [],
+        })
+        openAct = episodes[episodes.length - 1]
+      } else {
+        actCount += 1
+        episodes.push({
+          name: `act-${actCount}`,
+          type: 'act',
+          startSeq: ev.seq,
+          endSeq: null,
+          completed: false,
+          toolNames: toolCalls.map((b) => b.name),
+          readPaths: [],
+          deps: [],
+        })
+        openAct = episodes[episodes.length - 1]
+      }
+    } else if (type === 'tool/result') {
+      if (openAct && pendingResults > 0) {
+        pendingResults -= 1
+        openAct.endSeq = ev.seq
+        if (pendingResults === 0) {
+          openAct.completed = true
+          openAct = null
+        }
+      }
+    }
+  }
+  return episodes.filter((e) => e.completed && e.endSeq != null)
 }
 
 // ---------- 插件主体 ----------
@@ -190,8 +153,10 @@ export function apply(ctx) {
     }
   }
 
-  /** 预算：上下文窗口的 thresholdRatio（默认 80%）。 */
+  /** 预算：上下文窗口的 thresholdRatio（默认 80%）；实验可注入 HELMSMAN_CWL_BUDGET 覆盖（模拟长任务压力）。 */
   function budgetTokens(session) {
+    const override = Number(process.env.HELMSMAN_CWL_BUDGET)
+    if (Number.isFinite(override) && override > 0) return override
     const header = session.requestHeader?.()?.config
     const ctxWindow = header?.contextWindow ?? 128000
     return Math.floor(ctxWindow * 0.8)
@@ -201,13 +166,15 @@ export function apply(ctx) {
   function evictRange(session, start, end, episode) {
     if (start == null || end == null || start > end) return null
     const marker = `[cwl-evicted:${episode.name} type=${episode.type} ${episode.readPaths?.length ?? 0} files]`
+    // sourceEventSeqs 必须包含 range 内全部被遮蔽的 surface 节点（官方约束）
+    const shadowed = (session.surface?.nodes ?? []).filter((seq) => seq >= start && seq <= end)
     const ev = session.append('user/message', {
       role: 'user',
       content: [{ type: 'text', text: marker }],
       source: { kind: 'plugin', plugin: 'helmsman-cwl', form: 'notice', summary: marker },
     }, {
       surfaceOp: { op: 'replace', start, end },
-      sourceEventSeqs: start === end ? [start] : [start, end],
+      sourceEventSeqs: shadowed.length > 0 ? shadowed : [start],
     })
     // 记录（供 cwl_recall 恢复）
     const list = evictionLog.get(session.id) ?? []
@@ -231,20 +198,29 @@ export function apply(ctx) {
     try {
       const episodes = deriveEpisodes(session.events)
       // 驱逐循环：持续剥除最老已完成 act，直到低于预算或无可驱逐
+      const PRESERVE_RECENT = 2 // 保留最新 N 个 surface 节点（含活跃工具调用）
+      const surface = session.surface?.nodes ?? []
+      const newestAllowed = surface.length > PRESERVE_RECENT ? surface[surface.length - 1 - PRESERVE_RECENT] : -1
       let guard = 0
       while (guard++ < 8) {
         const current = usageTokens(session)
         if (current <= budget) break
-        // 找最老可驱逐 act（未遮蔽、已完成）
+        // 找最老可驱逐 act（未遮蔽、已完成、不碰最新尾巴、平衡）
         const evictedSeqs = new Set()
         for (const [, list] of evictionLog) for (const e of list) { evictedSeqs.add(e.start); evictedSeqs.add(e.end) }
         let target = null
         for (const ep of episodes) {
           if (ep.type !== 'act' || !ep.completed) continue
           if (evictedSeqs.has(ep.startSeq)) continue
+          if (ep.endSeq > newestAllowed) continue // 保护最新尾巴
           if (target === null || ep.startSeq < target.startSeq) target = ep
         }
         if (!target) break
+        // 平衡校验（官方 helper）：段尾必须是配对的 tool 边界
+        try {
+          const { toolPairingBalancedAfter } = await import('@deepseek-ai/dsh-compaction')
+          if (!toolPairingBalancedAfter(session, target.endSeq)) { console.warn('[helmsman-cwl] 跳过不平衡段', target.name); break }
+        } catch { /* 校验不可用时跳过 */ }
         evictRange(session, target.startSeq, target.endSeq, target)
       }
       console.log(`[helmsman-cwl] ${session.id} 驱逐后 ${usageTokens(session)}/${budget} tokens`)
@@ -296,7 +272,13 @@ export function apply(ctx) {
             res.writeHead(200, { 'content-type': 'application/json' })
             return res.end(JSON.stringify({ ok: true, evicted: 0, note: 'no completed act episodes' }))
           }
-          const target = acts.sort((a, b) => a.startSeq - b.startSeq)[0]
+          const surface = session.surface?.nodes ?? []
+          const newestAllowed = surface.length > 2 ? surface[surface.length - 3] : -1
+          const target = acts.filter((e) => e.endSeq <= newestAllowed).sort((a, b) => a.startSeq - b.startSeq)[0]
+          if (!target) {
+            res.writeHead(200, { 'content-type': 'application/json' })
+            return res.end(JSON.stringify({ ok: true, evicted: 0, note: 'no evictable completed act (all in recent tail)' }))
+          }
           evictRange(session, target.startSeq, target.endSeq, target)
           res.writeHead(200, { 'content-type': 'application/json' })
           res.end(JSON.stringify({ ok: true, evicted: 1, episode: target.name, range: [target.startSeq, target.endSeq] }))
