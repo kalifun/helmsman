@@ -1,0 +1,44 @@
+{
+  "name": "dsh-cwl",
+  "version": "0.1.0",
+  "description": "CWL — Context Window Lifecycle for DeepSeek Harness: structured context eviction (arXiv:2606.11213). Graduated, deterministic, zero-LLM eviction of exploration/action episodes when context pressure exceeds budget — no summarization lossiness, no hallucination, user messages never evicted.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib.js",
+    "cordis.patch.yml",
+    "README.md",
+    "check.js",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node check.js"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "^0.1.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-compaction": "^0.0.1",
+    "@deepseek-ai/dsh-token-meter": "^0.0.1"
+  },
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "context-management",
+    "context-window",
+    "eviction",
+    "compaction",
+    "agent-memory"
+  ]
+}
