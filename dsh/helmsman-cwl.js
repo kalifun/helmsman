@@ -23,6 +23,21 @@ export const inject = ['webServer', 'agents', 'sessions', 'helmsmanBoard', 'helm
  * @param {Array} events - session.events
  * @returns {Array} [{name, type, startSeq, endSeq, completed, toolSeqs, readPaths}]
  */
+/** 从工具参数提取 act 触碰的文件路径（file_path 或 command 里引用的路径）。 */
+function collectTouchedPaths(toolName, argsRaw) {
+  try {
+    const args = typeof argsRaw === 'string' ? JSON.parse(argsRaw) : argsRaw
+    const p = args?.file_path ?? args?.path
+    if (typeof p === 'string') return [p]
+    // bash 命令里的路径（粗略：/xx/yy.ext 模式）
+    if (typeof args?.command === 'string') {
+      const m = args.command.matchAll(/[\w./-]+\.[a-z]+/g)
+      return [...new Set([...m].map((x) => x[0]).filter((x) => x.includes('/')))].slice(0, 5)
+    }
+    return []
+  } catch { return [] }
+}
+
 /** 从工具参数提取被读的文件路径（供驱逐后可恢复）。 */
 function collectReadPaths(toolName, argsRaw) {
   if (toolName !== 'read' && toolName !== 'search') return []
@@ -36,16 +51,20 @@ function collectReadPaths(toolName, argsRaw) {
 }
 
 export function deriveEpisodes(events) {
-  // episode 基于 surface 事件（assistant/message + tool/result）推导：
-  //  - act：assistant/message 含 tool-call 块 → 其后续 tool/result 序列（完整工具段）
-  //  - expl：read/search 类工具段
-  // 驱逐范围 = [assistant/message seq, 最后 tool/result seq]（配对完整，可安全遮蔽）
+  // episode 推断（v2：阶段合并 + 依赖图）
+  // 基础单元：每条含 tool-call 的 assistant/message → 一个 tool-batch（记录工具名 + 读的文件）
+  // 阶段合并：连续同类型 tool-batch 合并为更大语义单元（expl 探索阶段 / act 执行阶段），
+  //           避免碎片化驱逐（论文"类型化依赖 episode"的核心）。
+  // 依赖推断：act 阶段读写的文件若在之前 expl 阶段读过 → 建立 deps 边（驱逐时保护）。
   const EXPL_TOOLS = new Set(['read', 'search', 'list', 'ls', 'glob', 'grep', 'find', 'web_search'])
   const episodes = []
   let explCount = 0
   let actCount = 0
-  let openAct = null // 当前打开的 act（等待 tool/result 收尾）
-  let pendingResults = 0 // 该 act 待收的 tool/result 数
+  let cur = null // 当前阶段
+
+  const flush = () => {
+    if (cur) { cur.completed = true; episodes.push(cur); cur = null }
+  }
 
   for (const ev of events) {
     const type = ev?.type
@@ -55,46 +74,51 @@ export function deriveEpisodes(events) {
       const toolCalls = content.filter((b) => b?.type === 'tool-call')
       if (toolCalls.length === 0) continue
       const isExpl = toolCalls.every((b) => EXPL_TOOLS.has(b.name))
-      pendingResults = toolCalls.length
-      if (isExpl) {
-        explCount += 1
-        episodes.push({
-          name: `expl-${explCount}`,
-          type: 'expl',
-          startSeq: ev.seq,
-          endSeq: null, // 待 tool/result 填
-          completed: false,
-          toolNames: toolCalls.map((b) => b.name),
-          readPaths: toolCalls.flatMap((b) => collectReadPaths(b.name, b.arguments)),
-          deps: [],
-        })
-        openAct = episodes[episodes.length - 1]
+      const readPaths = toolCalls.flatMap((b) => collectReadPaths(b.name, b.arguments))
+      const names = toolCalls.map((b) => b.name)
+      // act 的工具参数里出现的文件路径（bash/edit 的 file_path / command 引用）
+      const touchedPaths = isExpl ? [] : toolCalls.flatMap((b) => collectTouchedPaths(b.name, b.arguments))
+      // 同类型连续 → 合并；类型切换 → 关当前开新
+      if (cur && cur.type === (isExpl ? 'expl' : 'act')) {
+        cur.batches.push({ seq: ev.seq, names, readPaths })
+        cur.endSeq = ev.seq
+        cur.toolNames.push(...names)
+        cur.readPaths.push(...readPaths)
+        if (!isExpl) cur.touchedPaths.push(...touchedPaths)
       } else {
-        actCount += 1
-        episodes.push({
-          name: `act-${actCount}`,
-          type: 'act',
-          startSeq: ev.seq,
-          endSeq: null,
-          completed: false,
-          toolNames: toolCalls.map((b) => b.name),
-          readPaths: [],
-          deps: [],
-        })
-        openAct = episodes[episodes.length - 1]
+        flush()
+        if (isExpl) {
+          explCount += 1
+          cur = { name: `expl-${explCount}`, type: 'expl', startSeq: ev.seq, endSeq: ev.seq,
+                  batches: [{ seq: ev.seq, names, readPaths }], toolNames: [...names],
+                  readPaths: [...readPaths], deps: [], touchedPaths: [], completed: false }
+        } else {
+          actCount += 1
+          cur = { name: `act-${actCount}`, type: 'act', startSeq: ev.seq, endSeq: ev.seq,
+                  batches: [{ seq: ev.seq, names, readPaths }], toolNames: [...names],
+                  readPaths: [...readPaths], deps: [], touchedPaths: [...touchedPaths], completed: false }
+        }
       }
     } else if (type === 'tool/result') {
-      if (openAct && pendingResults > 0) {
-        pendingResults -= 1
-        openAct.endSeq = ev.seq
-        if (pendingResults === 0) {
-          openAct.completed = true
-          openAct = null
-        }
+      if (cur) cur.endSeq = ev.seq
+    }
+  }
+  flush()
+
+  // 依赖推断：act 阶段的读文件若之前 expl 阶段读过 → deps 边
+  const expls = episodes.filter((e) => e.type === 'expl')
+  const readSets = expls.map((e) => new Set(e.readPaths))
+  for (const ep of episodes) {
+    if (ep.type !== 'act') continue
+    const touched = new Set([...ep.readPaths, ...(ep.touchedPaths ?? [])])
+    for (let i = 0; i < expls.length; i++) {
+      // act 触碰（读写）了 expl 读过的文件 → 依赖（且 expl 在 act 之前）
+      if (expls[i].endSeq < ep.startSeq && [...touched].some((p) => readSets[i].has(p))) {
+        ep.deps.push(expls[i].name)
       }
     }
   }
-  return episodes.filter((e) => e.completed && e.endSeq != null)
+  return episodes
 }
 
 // ---------- 插件主体 ----------
@@ -209,16 +233,22 @@ export function apply(ctx) {
       while (guard++ < 12) {
         const current = usageTokens(session)
         if (current <= budget) break
-        // 找最老可驱逐段（未遮蔽、已完成、不碰最新尾巴）；优先 expl
+        // 找最老可驱逐段（未遮蔽、已完成、不碰最新尾巴）；优先无依赖 expl，其次最老 act
         const evictedSeqs = new Set()
         for (const [, list] of evictionLog) for (const e of list) { evictedSeqs.add(e.start); evictedSeqs.add(e.end) }
+        // 被后续 act 依赖的 expl 不可驱逐（依赖图保护）
+        const dependedExpls = new Set()
+        for (const ep of episodes) if (ep.type === 'act') for (const d of ep.deps ?? []) dependedExpls.add(d)
         let target = null
         for (const ep of episodes) {
-          if (ep.type === 'act' && target && target.type === 'expl') continue // 已有 expl 候选
           if (!ep.completed) continue
           if (evictedSeqs.has(ep.startSeq)) continue
           if (ep.endSeq > newestAllowed) continue // 保护最新尾巴
-          if (target === null || (ep.type === 'expl' && target.type === 'act') || ep.startSeq < target.startSeq) target = ep
+          if (ep.type === 'expl' && dependedExpls.has(ep.name)) continue // 有依赖 → 保护
+          if (target === null) { target = ep; continue }
+          // 优先 expl（纯上下文最安全）；同类型取更老
+          if (ep.type === 'expl' && target.type === 'act') { target = ep; continue }
+          if (ep.type === target.type && ep.startSeq < target.startSeq) target = ep
         }
         if (!target) break
         // 平衡校验（官方 helper）：段尾必须是配对的 tool 边界
