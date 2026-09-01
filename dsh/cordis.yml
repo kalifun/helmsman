@@ -79,6 +79,10 @@
     maxTokens: 8192
     compactionRetries: 1
 
+# CWL 结构化上下文驱逐（自研，arXiv:2606.11213 范式）：pre-step 预算检查 + episode 驱逐
+- id: helmsman-cwl
+  name: ./helmsman-cwl.js
+
 - id: session-projection
   name: '@deepseek-ai/dsh-session-projection'
 
