@@ -66,6 +66,10 @@ export function deriveEpisodes(events) {
     if (cur) { cur.completed = true; episodes.push(cur); cur = null }
   }
 
+  // 每个工具调用的可驱逐范围：assistant(tool-call) seq → 对应 tool/result seq
+  // （dsh surface 只含 assistant/message + tool/result，驱逐用这两个边界）
+  const pendingCalls = [] // [{callId, assistantSeq, name, args, isExpl}]
+  let pendingResults = 0
   for (const ev of events) {
     const type = ev?.type
     const data = ev.data ?? {}
@@ -80,7 +84,7 @@ export function deriveEpisodes(events) {
       const touchedPaths = isExpl ? [] : toolCalls.flatMap((b) => collectTouchedPaths(b.name, b.arguments))
       // 同类型连续 → 合并；类型切换 → 关当前开新
       if (cur && cur.type === (isExpl ? 'expl' : 'act')) {
-        cur.batches.push({ seq: ev.seq, names, readPaths })
+        cur.batches.push({ seq: ev.seq, names, readPaths, touchedPaths })
         cur.endSeq = ev.seq
         cur.toolNames.push(...names)
         cur.readPaths.push(...readPaths)
@@ -90,12 +94,12 @@ export function deriveEpisodes(events) {
         if (isExpl) {
           explCount += 1
           cur = { name: `expl-${explCount}`, type: 'expl', startSeq: ev.seq, endSeq: ev.seq,
-                  batches: [{ seq: ev.seq, names, readPaths }], toolNames: [...names],
+                  batches: [{ seq: ev.seq, names, readPaths, touchedPaths: [] }], toolNames: [...names],
                   readPaths: [...readPaths], deps: [], touchedPaths: [], completed: false }
         } else {
           actCount += 1
           cur = { name: `act-${actCount}`, type: 'act', startSeq: ev.seq, endSeq: ev.seq,
-                  batches: [{ seq: ev.seq, names, readPaths }], toolNames: [...names],
+                  batches: [{ seq: ev.seq, names, readPaths, touchedPaths }], toolNames: [...names],
                   readPaths: [...readPaths], deps: [], touchedPaths: [...touchedPaths], completed: false }
         }
       }
@@ -119,6 +123,43 @@ export function deriveEpisodes(events) {
     }
   }
   return episodes
+}
+
+// ---------- 分级驱逐选择（对齐 pi-cwl 工具优先级） ----------
+// 优先级：search(grep/glob/ls) > bash > read > thinking —— 越"可丢弃"越先驱逐。
+// 每段 = assistant(tool-call) seq → 对应 tool/result seq（surface 边界）。
+// 保护：最新尾巴（preserveRecent）、被后续 act 依赖的 expl（依赖图）。
+
+const EVICT_PRIORITY = { search: 0, bash: 1, read: 2, edit: 3, other: 4 }
+const SEARCH_TOOLS = new Set(['grep', 'glob', 'find', 'ls', 'list', 'search', 'web_search'])
+const BASH_TOOLS = new Set(['bash', 'exec', 'run'])
+const READ_TOOLS = new Set(['read', 'cat'])
+
+export function pickEvictionTarget(events, surface, newestAllowed) {
+  // 用 deriveEpisodes 的 episode（阶段合并 + 依赖图）选可驱逐目标：
+  // 优先级 expl（纯探索上下文）> act 且段更老；依赖保护的 expl 不选
+  const episodes = deriveEpisodes(events)
+  const surfaceSet = new Set(surface) // 当前 surface 上的节点
+  // 被后续 act 依赖的 expl 保护
+  const depended = new Set()
+  for (const ep of episodes) if (ep.type === 'act') for (const d of ep.deps ?? []) depended.add(d)
+  let best = null
+  for (const ep of episodes) {
+    if (!ep.completed) continue
+    if (!surfaceSet.has(ep.startSeq)) continue // 已被遮蔽（不在 surface）→ 跳过
+    if (ep.endSeq > newestAllowed) continue // 保护最新尾巴
+    if (ep.type === 'expl' && depended.has(ep.name)) continue
+    const score = (ep.type === 'expl' ? 0 : 10) + ep.startSeq / 1e9 // expl 优先，同型更老优先
+    if (best === null || score < best.score) best = { ...ep, score }
+  }
+  if (!best) return null
+  return {
+    start: best.startSeq,
+    end: best.endSeq,
+    label: best.name,
+    type: best.type,
+    readPaths: best.readPaths ?? [],
+  }
 }
 
 // ---------- 插件主体 ----------
@@ -224,39 +265,18 @@ export function apply(ctx) {
     if (used <= budget) return next()
 
     try {
-      const episodes = deriveEpisodes(session.events)
-      // 驱逐循环：优先剥 expl（探索段 = 纯上下文，最安全），无 expl 才动 act
-      const PRESERVE_RECENT = 2 // 保留最新 N 个 surface 节点（含活跃工具调用）
+      // 分级驱逐（对齐 pi-cwl：按工具优先级剥单段，非整段抹除）
+      const PRESERVE_RECENT = 2
       const surface = session.surface?.nodes ?? []
       const newestAllowed = surface.length > PRESERVE_RECENT ? surface[surface.length - 1 - PRESERVE_RECENT] : -1
       let guard = 0
-      while (guard++ < 12) {
+      while (guard++ < 20) {
         const current = usageTokens(session)
         if (current <= budget) break
-        // 找最老可驱逐段（未遮蔽、已完成、不碰最新尾巴）；优先无依赖 expl，其次最老 act
-        const evictedSeqs = new Set()
-        for (const [, list] of evictionLog) for (const e of list) { evictedSeqs.add(e.start); evictedSeqs.add(e.end) }
-        // 被后续 act 依赖的 expl 不可驱逐（依赖图保护）
-        const dependedExpls = new Set()
-        for (const ep of episodes) if (ep.type === 'act') for (const d of ep.deps ?? []) dependedExpls.add(d)
-        let target = null
-        for (const ep of episodes) {
-          if (!ep.completed) continue
-          if (evictedSeqs.has(ep.startSeq)) continue
-          if (ep.endSeq > newestAllowed) continue // 保护最新尾巴
-          if (ep.type === 'expl' && dependedExpls.has(ep.name)) continue // 有依赖 → 保护
-          if (target === null) { target = ep; continue }
-          // 优先 expl（纯上下文最安全）；同类型取更老
-          if (ep.type === 'expl' && target.type === 'act') { target = ep; continue }
-          if (ep.type === target.type && ep.startSeq < target.startSeq) target = ep
-        }
+        // 提取可驱逐的工具段（assistant tool-call → tool/result），按优先级选
+        const target = pickEvictionTarget(session.events, surface, newestAllowed)
         if (!target) break
-        // 平衡校验（官方 helper）：段尾必须是配对的 tool 边界
-        try {
-          const { toolPairingBalancedAfter } = await import('@deepseek-ai/dsh-compaction')
-          if (!toolPairingBalancedAfter(session, target.endSeq)) { console.warn('[helmsman-cwl] 跳过不平衡段', target.name); break }
-        } catch { /* 校验不可用时跳过 */ }
-        evictRange(session, target.startSeq, target.endSeq, target)
+        evictRange(session, target.start, target.end, { name: target.label, type: target.type, readPaths: target.readPaths })
       }
       console.log(`[helmsman-cwl] ${session.id} 驱逐后 ${usageTokens(session)}/${budget} tokens`)
     } catch (e) {
