@@ -165,7 +165,11 @@ export function apply(ctx) {
   /** 驱逐一段：用轻量 marker 遮蔽（surface replace，零 LLM）。 */
   function evictRange(session, start, end, episode) {
     if (start == null || end == null || start > end) return null
-    const marker = `[cwl-evicted:${episode.name} type=${episode.type} ${episode.readPaths?.length ?? 0} files]`
+    // expl 驱逐保留摘要（agent 仍知道探索过什么，只是省掉原始大块输出）
+    const summary = episode.type === 'expl' && episode.toolNames?.length
+      ? `已探索：${episode.toolNames.join(', ')}${episode.readPaths?.length ? `（${episode.readPaths.slice(0, 3).join(', ')}）` : ''}`
+      : `已执行动作段 ${episode.name}（效果已落盘，如需细节用 cwl_recall）`
+    const marker = `[cwl-evicted:${episode.name} type=${episode.type}] ${summary}`
     // sourceEventSeqs 必须包含 range 内全部被遮蔽的 surface 节点（官方约束）
     const shadowed = (session.surface?.nodes ?? []).filter((seq) => seq >= start && seq <= end)
     const ev = session.append('user/message', {
@@ -197,23 +201,24 @@ export function apply(ctx) {
 
     try {
       const episodes = deriveEpisodes(session.events)
-      // 驱逐循环：持续剥除最老已完成 act，直到低于预算或无可驱逐
+      // 驱逐循环：优先剥 expl（探索段 = 纯上下文，最安全），无 expl 才动 act
       const PRESERVE_RECENT = 2 // 保留最新 N 个 surface 节点（含活跃工具调用）
       const surface = session.surface?.nodes ?? []
       const newestAllowed = surface.length > PRESERVE_RECENT ? surface[surface.length - 1 - PRESERVE_RECENT] : -1
       let guard = 0
-      while (guard++ < 8) {
+      while (guard++ < 12) {
         const current = usageTokens(session)
         if (current <= budget) break
-        // 找最老可驱逐 act（未遮蔽、已完成、不碰最新尾巴、平衡）
+        // 找最老可驱逐段（未遮蔽、已完成、不碰最新尾巴）；优先 expl
         const evictedSeqs = new Set()
         for (const [, list] of evictionLog) for (const e of list) { evictedSeqs.add(e.start); evictedSeqs.add(e.end) }
         let target = null
         for (const ep of episodes) {
-          if (ep.type !== 'act' || !ep.completed) continue
+          if (ep.type === 'act' && target && target.type === 'expl') continue // 已有 expl 候选
+          if (!ep.completed) continue
           if (evictedSeqs.has(ep.startSeq)) continue
           if (ep.endSeq > newestAllowed) continue // 保护最新尾巴
-          if (target === null || ep.startSeq < target.startSeq) target = ep
+          if (target === null || (ep.type === 'expl' && target.type === 'act') || ep.startSeq < target.startSeq) target = ep
         }
         if (!target) break
         // 平衡校验（官方 helper）：段尾必须是配对的 tool 边界
