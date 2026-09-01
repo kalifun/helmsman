@@ -209,10 +209,26 @@ export function apply(ctx) {
 
 
 
-  /** 计算会话当前 token 用量。 */
+  /** 计算会话当前真实压力（input + cacheRead + output + reasoning）。
+   * tokenMeter.measure() 的 totalTokens 不含 cacheRead（缓存命中是上下文主要占用），
+   * 必须从 session 的 usage 事件累计真实压力。 */
   function usageTokens(session) {
     try {
-      return tokenMeter?.measure(session)?.totalTokens ?? 0
+      const m = tokenMeter?.measure(session)
+      if (m?.pressureTokens != null) return m.pressureTokens
+      // 从 usage 事件累计（assistant/message 的 usage 字段）
+      let input = 0, cache = 0, output = 0, reason = 0
+      for (const ev of session.events) {
+        if (ev?.type !== 'assistant/message') continue
+        const u = ev.data?.usage
+        if (!u) continue
+        input += typeof u.inputTokens === 'number' ? u.inputTokens : 0
+        cache += typeof u.cacheReadTokens === 'number' ? u.cacheReadTokens : 0
+        output += typeof u.outputTokens === 'number' ? u.outputTokens : 0
+        reason += typeof u.reasoningTokens === 'number' ? u.reasoningTokens : 0
+      }
+      if (input + cache + output + reason > 0) return input + cache + output + reason
+      return m?.totalTokens ?? 0
     } catch {
       return 0
     }
@@ -261,6 +277,8 @@ export function apply(ctx) {
 
     const used = usageTokens(session)
     const budget = budgetTokens(session)
+    // 诊断：每次 pre-step 打印压力（验证触发）
+    console.log(`[helmsman-cwl] pre-step ${session.id.slice(0,14)} used=${used} budget=${budget}`)
     // 驱逐开关：超过预算才动作（预算内完全不干预，零开销）
     if (used <= budget) return next()
 
