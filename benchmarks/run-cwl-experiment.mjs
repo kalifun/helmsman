@@ -3,7 +3,7 @@
 //   group: baseline | summary | cwl
 //   baseline = 无管理（引擎默认，无驱逐）
 //   summary  = 摘要压缩（ACP 路线：模型写摘要替换历史）
-//   cwl      = 结构化驱逐（helmsman-cwl，预算内确定性剥除）
+//   cwl      = 结构化驱逐（dsh-cwl 独立插件，预算内确定性剥除）
 // 输出：JSON 结果（stdout），含每任务 status/steps/cost/驱逐数/验收
 import { execSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'

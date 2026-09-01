@@ -1,7 +1,7 @@
 # CWL 结构化驱逐 — 实验报告（第 1 轮）
 
 > 日期：2026-09 | 范式：arXiv:2606.11213（Context Window Lifecycle）
-> 自研实现：`dsh/helmsman-cwl.js` | 实验脚本：`run-cwl-experiment.mjs`
+> 自研实现：独立插件 `dsh-cwl`（Helmsman 以依赖消费） | 实验脚本：`run-cwl-experiment.mjs`
 
 ## 结论先行（诚实版）
 
