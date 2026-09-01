@@ -53,12 +53,17 @@ async function main() {
   // 驱逐统计
   const evictions = api('/api/cwl/evictions')
   const ev = evictions.filter((e) => e.sid === sid).flatMap((e) => e.evicted ?? [])
+  // 会话最终完整 usage（真实对比指标：input/cacheRead/output/reasoning）
+  const final = api(`/api/chats/${sid}`)
   const summary = {
     group: GROUP, rounds: ROUNDS, ws,
     rows,
     evictions: ev.length,
     totalTokens: rows.reduce((a, r) => a + r.tokens, 0),
     finalStatus: rows[rows.length - 1]?.status,
+    finalUsage: final?.usage ?? null,
+    finalSteps: final?.steps ?? null,
+    finalTurns: final?.turns ?? null,
   }
   console.log(JSON.stringify(summary, null, 2))
   const outDir = join(process.cwd(), 'results')
