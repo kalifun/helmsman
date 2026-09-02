@@ -14,7 +14,7 @@
 
 - **三组对照**（目标）：无管理基线 / 摘要压缩（ACP 路线）/ CWL 驱逐
 - **任务集**：`data/long-tasks.json`（6 任务 × 5 步，验收可判定：产物文件检查）
-- **CWL 预算**：经 `HELMSMAN_CWL_BUDGET` 注入低阈值（6000/8000/10000/12000）模拟长任务压力
+- **CWL 预算**：经 `DSH_CWL_BUDGET` 注入低阈值（6000/8000/10000/12000）模拟长任务压力
 - **指标**：完成率 / 验收通过率 / 步骤数 / 成本 / 驱逐次数
 
 ## 结果
@@ -59,7 +59,7 @@
 
 ```bash
 # 启动引擎（注入预算）
-HELMSMAN_CWL_BUDGET=8000 node dsh/launcher.mjs dsh/cordis.yml
+DSH_CWL_BUDGET=8000 node dsh/launcher.mjs dsh/cordis.yml
 # 跑 CWL 组
 node benchmarks/run-cwl-experiment.mjs cwl
 ```

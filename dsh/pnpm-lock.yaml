@@ -240,8 +240,8 @@ importers:
         specifier: ^11.10.0
         version: 11.10.0
       dsh-cwl:
-        specifier: ^0.1.0
-        version: 0.1.0(6b1eb7b81130d52761915ceda0e9b752)
+        specifier: ^0.1.1
+        version: 0.1.1(6b1eb7b81130d52761915ceda0e9b752)
       ws:
         specifier: ^8.21.3
         version: 8.21.3
@@ -1582,8 +1582,8 @@ packages:
     resolution: {integrity: sha512-svtcdpS8CgJyqAjEQIXdb3OjhFVVYjzGAPO8WGCmRbrml64SPw/jJD4GoE98aR7r25A0XcgrK3F02yw9R/vhQw==}
     engines: {node: '>=0.3.1'}
 
-  dsh-cwl@0.1.0:
-    resolution: {integrity: sha512-EQAv+31qzoSXQFaq+cnwm/+Skzgzvz1jwObpo3GobxcLNA63ai2sLGMNKzWGcFp5oeWMeKPPZ8mHTeFbKkBskw==}
+  dsh-cwl@0.1.1:
+    resolution: {integrity: sha512-Ec7kgECAVXVB+fLJTd44jQ87BST54cCDgvNDrwX1a5oixE/4OLyxB7aPEv/g6nKatp5qdIpgqwZNeDQ9zAasAA==}
     engines: {node: ^22.19.0 || >=24.0.0}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
@@ -3360,7 +3360,7 @@ snapshots:
 
   diff@9.0.0: {}
 
-  dsh-cwl@0.1.0(6b1eb7b81130d52761915ceda0e9b752):
+  dsh-cwl@0.1.1(6b1eb7b81130d52761915ceda0e9b752):
     dependencies:
       '@deepseek-ai/cordis': 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@deepseek-ai/dsh-compaction': 0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-brand@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-commands@0.1.2-alpha.3(965568bb7d301e8a697bfc93f7c4b485))(@deepseek-ai/dsh-invariants@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-session@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-scope@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.2-alpha.3(@deepseek-ai/cordis@4.0.2))))

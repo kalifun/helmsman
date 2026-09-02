@@ -15,7 +15,7 @@
 ## 实验设置
 
 - 场景：同一 chat 会话连续 12 轮，每轮"读 items.json + 按轮次写文件"
-- CWL 预算：`HELMSMAN_CWL_BUDGET=30000`（上下文超 30K 触发驱逐）
+- CWL 预算：`DSH_CWL_BUDGET=30000`（上下文超 30K 触发驱逐）
 - baseline：无驱逐（默认 80% 不触发）
 
 ## 结果（真实会话 usage，12 轮全部 Done）
@@ -47,6 +47,6 @@
 node dsh/launcher.mjs dsh/cordis.yml
 node benchmarks/run-context-pressure.mjs baseline 12
 # CWL（预算 30000 触发驱逐）
-HELMSMAN_CWL_BUDGET=30000 node dsh/launcher.mjs dsh/cordis.yml
+DSH_CWL_BUDGET=30000 node dsh/launcher.mjs dsh/cordis.yml
 node benchmarks/run-context-pressure.mjs cwl 12
 ```
