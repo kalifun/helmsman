@@ -111,6 +111,8 @@ web/         React 前端（经 Vite proxy 直连引擎 3081）
 
 **设计参考（2026-09）：[WikiSkill](https://arxiv.org/abs/2608.27454)（Google，arXiv:2608.27454）**——agent 经验编译进持久知识层让技能越用越强（Raw 轨迹 / Wiki 模式+反模式+适用条件 / Skills 可执行手册 三层）。已落地轻档：知识条目新增 `anti_patterns`（反模式）+ `applicability`（适用条件），distill 自动提炼、装配时随命中注入、前端详情展示。关键结论待办：执行端应跑"内化 Skill"而非直接查 Wiki（推理时开放 Wiki 访问反而降泛化）——对应未来"知识→项目级可执行 Skill"层。
 
+**自研（2026-09）：CWL 结构化上下文驱逐（独立插件 [`dsh-cwl`](https://github.com/kalifun/dsh-cwl)，范式来自 [arXiv:2606.11213](https://arxiv.org/abs/2606.11213)）**——超越摘要压缩：把轨迹自动推导为类型化 episode 图（expl 探索 / act 动作 + 依赖），`agent/pre-step` 瀑布每次 LLM 调用前检查 token 预算，超阈值用 surface replace **确定性剥除**最老已完成 act 段（零 LLM、无摘要幻觉、保留因果结构、用户消息永不驱逐）。区别于社区摘要型插件（ACP）；带 `cwl_mark`/`cwl_recall` 工具（主动标注 + 驱逐后按需恢复）。已实现并验证驱逐机制（两轮实验：输入 -64%、步数 -13%），通用能力独立发布为插件，Helmsman 以依赖方式消费。
+
 > 状态核对基准：2026-08 按代码核实（README 复选框为快照，接口/服务演进以仓库为准）。
 
 ## 📄 许可

@@ -79,6 +79,10 @@
     maxTokens: 8192
     compactionRetries: 1
 
+# CWL 结构化上下文驱逐（独立插件 dsh-cwl，范式 arXiv:2606.11213）：pre-step 预算检查 + episode 驱逐
+- id: dsh-cwl
+  name: dsh-cwl
+
 - id: session-projection
   name: '@deepseek-ai/dsh-session-projection'
 
